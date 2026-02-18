@@ -31,3 +31,6 @@ Egress Network Interface
   ↓
 External Network
 
+
+To add new terminal functions using the module_scripts, run:-
+source module_scripts.bash
