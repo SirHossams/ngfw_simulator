@@ -2,8 +2,7 @@ We using OpenSSL library called:
 
 libcrypto
 
-pipeline
-   ↓
+
 controller
    ↓ encrypt
 UNIX socket
@@ -13,5 +12,3 @@ module process
 UNIX socket
    ↓ decrypt
 controller
-   ↓
-pipeline
