@@ -25,6 +25,7 @@ source module_scripts.bash
 
 ### System Startup
 
+<pre>'''
 controller starts
 controller spwan all process (fork + exec)
 controller creates sockets:
@@ -38,24 +39,22 @@ controller creates sockets:
   controller ↔ interface handler
   controller ↔ interface speaker
 '''
-encryption system initializes (Each process performs key exchange with controller, so each of them have shared key with controller)
+encryption system initializes (PE, PEP performs key exchange with with each other and other modules, then the encryption becomes symmetric)
 
 ### Packet
 
 NIC recieves packet
 capture.cpp captures packet, parses it and convert it into packet.h
 capture.cpp uses crypto.cpp to encrypt the packet
-send it to controller
-controller decrypt it
-controller logs via logger.cpp and collector.cpp
-controller sends packet to module 1, module 2 (if exist), ... and Policy Engine
-Policy Engine import all 4 databases
+push it to PEP via socket and push to Subject database directly.
+PEP logs via logger.cpp
+PE recieves the packet and decrypt it
+PE import all 4 databases and sends packet to module 1, module 2 and ...
 PE evaultes the packet and calcalute it's score from: 4 databases + modules trust score
-PE makes it decision and send it to controller
-controller send packet + decision to PEP
-PEP enforces decision (if dropped ===> packet destroyed: else ===> send to controller again for using more modules or forward to egress interface)
-packet leaves firewall in any case
-enforcement logs via logger.cpp and collector.cpp
+PE makes it decision and send it to to PEP
+PEP enforces decision (if dropped ===> packet destroyed: else ===> send to other modules or forward to egress interface)
+PEP logs via logger.cpp and collector.cpp
+packet leaves firewall in any case (Interface explaination is missing)
 
 
 Telemetry Plane:
@@ -63,3 +62,4 @@ All components → Collector → External security systems (SIEM or Zeek)
 
 Logging Plane:
 All components → Logger → Secure local logs (For application only and developers)
+'''</pre>

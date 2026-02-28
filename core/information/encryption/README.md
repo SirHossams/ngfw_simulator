@@ -3,12 +3,12 @@ We using OpenSSL library called:
 libcrypto
 
 
-controller
+module process 1
    ↓ encrypt
-UNIX socket
+UNIX or Network socket
    ↓ decrypt
-module process
+module process 2
    ↓ encrypt
-UNIX socket
+UNIX or Network socket
    ↓ decrypt
-controller
+module process (1 or x)
