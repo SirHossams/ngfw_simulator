@@ -1,5 +1,11 @@
-#include <pcap/pcap.h>
+#ifndef PACKET_H
+#define PACKET_H
 
+#include <pcap/pcap.h>
+#include <string>
+#include <vector>
+
+using namespace std;
 /* ethernet headers are always exactly 14 bytes */
 #define SIZE_ETHERNET 14
 
@@ -56,3 +62,40 @@ struct sniff_tcp {
         u_short th_sum;                 /* checksum */
         u_short th_urp;                 /* urgent pointer */
 };
+
+/* Normalized Packet */
+struct NormalizedPacket {
+
+    uint64_t capture_timestamp_sec;
+    uint64_t capture_timestamp_usec;
+    uint64_t capture_sequence_number;
+
+    /* Layer 1 */
+    string src_mac;
+    string dst_mac;
+    uint16_t ether_type;
+
+    /* Layer 2 */
+    uint8_t ip_version;
+    string src_ip;
+    string dst_ip;
+    uint8_t ttl;
+    uint16_t header_checksum;
+    uint16_t identification;
+    uint16_t flags;
+    uint16_t fragment_offset;
+    uint16_t total_length;
+    uint8_t protocol;
+
+    /* Layer 3 */
+    uint16_t src_port;
+    uint16_t dst_port;
+    uint32_t sequence_number;
+    uint32_t acknowledgment_number;
+    uint16_t window_size;
+    uint8_t tcp_flags;
+
+    vector<uint8_t> payload;
+};
+
+#endif
