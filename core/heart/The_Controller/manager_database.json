@@ -1,0 +1,17 @@
+[
+	{
+		"Username":"hossam",
+		"PasswordHash":"5a4bb83e39cfbdccaf11d599f833a4efa80945d0723c4d842e9f1e168a510ac5",
+		"privileges":"0100"
+	},
+	{
+		"Username":"mohamed",
+		"PasswordHash":"f2ccf9eb9885f3bf4ee2492a64ccd87fd86bd0959bddcf2c89128b203bcdf7f4",
+		"privileges":"0010"
+	},
+	{
+		"Username":"aseel",
+		"PasswordHash":"4320800f9293f3416e0001f0bc8e50060c10ecdf4d31fbe7655c504faed95f3c",
+		"privileges":"0001"
+	}
+]

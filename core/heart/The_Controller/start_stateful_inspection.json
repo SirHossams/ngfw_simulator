@@ -1,0 +1,13 @@
+{
+	"control_settings": {
+		"CPU_affinity":2,
+		"Memory_usage":125,
+		"IP_address":"21.49.121.51",
+		"Port_number":2415
+	},
+	"module_settings": {
+		"name":"stateful_inspection",
+		"id":"242356236235",
+		"time":"23 Uhr"
+	}
+}

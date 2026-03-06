@@ -1,0 +1,64 @@
+19 January 2026
+*Notes about the controller's part*:-
+1- Controller's head is the control plane. (gives instructions)
+2- Controller's body is the data plane. (receives instructions)
+
+Q: What is the main function of the controller's head (the small part)?
+Ans: Receives the instructions from the firewall's manager.
+This part receives a JSON file from the manager with all the instructions given.
+
+20 January 2026
+Q: What is the main function of the controller's body (the large part)?
+Ans: Executes what is inside the JSON file that manages the appliance modules.
+Takes the JSON instructions from the head in addition to the username and the privileges.
+
+Q: What is the goal of the body?
+Ans: Runs, updates and shutdowns modules.
+
+Q: What are the precise functions of the body?
+Ans: According to the head-body diagram:-
+1- Starting modules (forking new processes) and every process is responsible for loading its own SO files with all the instructions.
+2- Manages the monitoring system (using the SNMP status).
+3- Updates the modules using the JSON file got from the head.
+
+According to the above, there will be four functions:-
+1- start_module
+input: JSON file (validate if it is for this module) - output: process
+2- start_monitor
+input: starts automatically - output: transfer to the monitor window (takes the updates from the SNMP messages.)
+3- update_monitor
+input: JSON file (validate if it is for this module) - output: changes in the settings (executions) of the module
+4- shutdown_module
+input: JSON file (validate if it is for this module) - output: the module shutdowns (terminate the process)
+
+Additional functions:-
+5- receive_information
+input: No arguments - output: JSON file after validation from the head
+6- json_interpret
+Reads the JSON file given by the head and executes its content.
+input: JSON file - output: execution of the content 
+
+Working Pipeline:-
+1. The body receives the JSON file from the head after the validation process.
+2. The body determine the privileges for this user (user validation).
+3. The body determines the targeted module from this JSON file, and then prepares everything to it.
+4. The body forks a child process with all the specifications inside the JSON file.
+5. The body receives feeds about the status of the modules via the SNMP protocol implementation (for the monitoring process).
+6. The body receives the JSON file that wants to update a module, and then send a signal with all the changes (via a pipe).
+7. The body receives the JSON file that wants to shutdown a module, and then send a signal to terminate the process (module).
+
+The head and body are two different processes and they communicate with each other using sockets and shared memory.
+As a convention, we suppose that the body has already a JSON file with all the status of the module.
+This is applied due to the security purposes. (the control plane must be separated from the data plane.)
+
+
+Q: What is the content of the control settings for example?
+Ans:-
+1- Socket address of the device that carries the module
+2- Start, update or shutdown the module (a listening socket in every module will listen for the signals sent by the controller)
+
+Q: What are the types of validations on the JSON file sent by the head?
+Ans:-
+1- The privilege number of the user (what are the modules that the user is allowed to deploy)
+2- Its purity against the injections (JSON injection)
+3- Other validations
