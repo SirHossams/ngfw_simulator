@@ -63,39 +63,90 @@ struct sniff_tcp {
         u_short th_urp;                 /* urgent pointer */
 };
 
+/* UDP Header */
+struct sniff_udp {
+    uint16_t uh_sport;   /* source port */
+    uint16_t uh_dport;   /* destination port */
+    uint16_t uh_ulen;    /* udp length */
+    uint16_t uh_sum;     /* udp checksum */
+};
+
+/* ICMP Header */
+struct sniff_icmp {
+    uint8_t  icmp_type;
+    uint8_t  icmp_code;
+    uint16_t icmp_checksum;
+};
+
+/* ARP Header */
+struct sniff_arp {
+    uint16_t arp_hrd;    /* hardware type */
+    uint16_t arp_pro;    /* protocol type */
+    uint8_t  arp_hln;    /* hardware address length */
+    uint8_t  arp_pln;    /* protocol address length */
+    uint16_t arp_op;     /* opcode */
+
+    uint8_t  arp_sha[6]; /* sender hardware address */
+    uint8_t  arp_spa[4]; /* sender protocol address */
+    uint8_t  arp_tha[6]; /* target hardware address */
+    uint8_t  arp_tpa[4]; /* target protocol address */
+};
+
 /* Normalized Packet */
 struct NormalizedPacket {
 
-    uint64_t capture_timestamp_sec;
-    uint64_t capture_timestamp_usec;
+    /* ===== Capture Metadata ===== */
     uint64_t capture_sequence_number;
+    uint32_t capture_timestamp_sec;
+    uint32_t capture_timestamp_usec;
 
-    /* Layer 1 */
+    /* ===== Layer 1 ===== */
     string src_mac;
     string dst_mac;
     uint16_t ether_type;
 
-    /* Layer 2 */
-    uint8_t ip_version;
+    /* ===== Layer 2 ===== */
+    uint8_t  ip_version;
     string src_ip;
     string dst_ip;
-    uint8_t ttl;
+    uint8_t  ttl;
     uint16_t header_checksum;
     uint16_t identification;
     uint16_t flags;
     uint16_t fragment_offset;
     uint16_t total_length;
-    uint8_t protocol;
+    uint8_t  protocol = 0;   // IP protocol number
 
-    /* Layer 3 */
-    uint16_t src_port;
-    uint16_t dst_port;
-    uint32_t sequence_number;
-    uint32_t acknowledgment_number;
-    uint16_t window_size;
-    uint8_t tcp_flags;
+    /* ===== Layer 3 ===== */
+    uint16_t src_port = 0;
+    uint16_t dst_port = 0;
 
+    /* TCP */
+    uint32_t sequence_number = 0;
+    uint32_t acknowledgment_number = 0;
+    uint16_t window_size = 0;
+    uint8_t  tcp_flags = 0;
+
+    /* UDP */
+    uint16_t udp_length = 0;
+
+    /* ICMP */
+    uint8_t icmp_type = 0;
+    uint8_t icmp_code = 0;
+
+    /* ARP */
+    uint16_t arp_opcode = 0;
+    string arp_src_ip;
+    string arp_dst_ip; 
+
+    /* ===== Application Layer ===== */
+//     string transport_protocol_name;   Useless
+    string app_protocol; // "HTTP", "DNS", etc.
+
+    /* ===== Payload ===== */
     vector<uint8_t> payload;
 };
+
+
 
 #endif

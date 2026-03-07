@@ -1,21 +1,27 @@
 #include <iostream>
 #include "../shared-headers/packet.h"
+#include <netinet/in.h>
 #include <nlohmann/json.hpp>
 #include <fstream>
 #include <sys/un.h>
+#include <sys/socket.h>
+#include <cstring>
+
 using namespace std;
 
-// 				Prototypes
+// 				Prototypes              //
 /*______________________________________*/
 
-string FindInterface();
-void Sniff(string name);
 void PacketHandler(u_char *args, const struct pcap_pkthdr *header, const u_char *packet);
-void print_hex_ascii_line(const u_char *payload, int len, int offset);
-void print_payload(const u_char* payload, int len);
+void PushToJsonDB(const NormalizedPacket& np, uint8_t protocol);
+vector<uint8_t> SerializePacket(const NormalizedPacket& np, uint8_t protocol);
+string DetectAppProtocol(uint8_t protocol, uint16_t src_port,uint16_t dst_port);
+bool InitPEPSocket();
+bool SendToPEP(const vector<uint8_t>& data);
 
 /*______________________________________*/
 
+// -1 is Default (not connected)
 int pep_socket = -1;
 
 bool SendToPEP(const vector<uint8_t>& data){
@@ -43,7 +49,7 @@ bool InitPEPSocket(){
 
     sockaddr_un addr{};
     addr.sun_family = AF_UNIX;
-    strcpy(addr.sun_path, "/tmp/pep.sock");
+    strncpy(addr.sun_path, "/tmp/pep.sock", sizeof(addr.sun_path) - 1);
 
     if (connect(pep_socket, (sockaddr*)&addr, sizeof(addr)) < 0)
         return false;
@@ -51,32 +57,96 @@ bool InitPEPSocket(){
     return true;
 }
 
-// Setting up the buffer
-vector<uint8_t> SerializePacket(const NormalizedPacket& np){
+string DetectAppProtocol(uint8_t protocol, uint16_t src_port,uint16_t dst_port){
+    if (protocol == IPPROTO_TCP) {
+        if (src_port == 80 || dst_port == 80)
+            return "HTTP";
+        if (src_port == 443 || dst_port == 443)
+            return "HTTPS";
+        if (src_port == 22 || dst_port == 22)
+            return "SSH";
+        return "TCP-UNKNOWN";
+    }
+    else if (protocol == IPPROTO_UDP) {
+        if (src_port == 53 || dst_port == 53)
+            return "DNS";
+        return "UDP-UNKNOWN";
+    }
+    else if (protocol == IPPROTO_ICMP)
+        return "ICMP";
+    else
+        return "ARP";
+}
+
+vector<uint8_t> SerializePacket(const NormalizedPacket& np, uint8_t protocol){
     vector<uint8_t> buffer;
 
+    // Function to set a place for data's size in buffer/data
     auto append = [&](const void* data, size_t size) {
         const uint8_t* ptr = static_cast<const uint8_t*>(data);
         buffer.insert(buffer.end(), ptr, ptr + size);
     };
-
     append(&np.capture_sequence_number, sizeof(np.capture_sequence_number));
     append(&np.capture_timestamp_sec, sizeof(np.capture_timestamp_sec));
     append(&np.capture_timestamp_usec, sizeof(np.capture_timestamp_usec));
-
     append(&np.ether_type, sizeof(np.ether_type));
-    append(&np.ip_version, sizeof(np.ip_version));
-    append(&np.ttl, sizeof(np.ttl));
-    append(&np.total_length, sizeof(np.total_length));
-    append(&np.protocol, sizeof(np.protocol));
 
-    append(&np.src_port, sizeof(np.src_port));
-    append(&np.dst_port, sizeof(np.dst_port));
-    append(&np.sequence_number, sizeof(np.sequence_number));
-    append(&np.acknowledgment_number, sizeof(np.acknowledgment_number));
-    append(&np.window_size, sizeof(np.window_size));
-    append(&np.tcp_flags, sizeof(np.tcp_flags));
+    // ================= TCP =================
+    if(protocol == IPPROTO_TCP){
 
+        append(&np.ip_version, sizeof(np.ip_version));
+        append(&np.ttl, sizeof(np.ttl));
+        append(&np.total_length, sizeof(np.total_length));
+        append(&np.protocol, sizeof(np.protocol));
+
+        append(&np.src_port, sizeof(np.src_port));
+        append(&np.dst_port, sizeof(np.dst_port));
+
+        append(&np.sequence_number, sizeof(np.sequence_number));
+        append(&np.acknowledgment_number, sizeof(np.acknowledgment_number));
+        append(&np.window_size, sizeof(np.window_size));
+        append(&np.tcp_flags, sizeof(np.tcp_flags));
+    }
+
+    // ================= UDP =================
+    else if(protocol == IPPROTO_UDP){
+
+        append(&np.ip_version, sizeof(np.ip_version));
+        append(&np.ttl, sizeof(np.ttl));
+        append(&np.total_length, sizeof(np.total_length));
+        append(&np.protocol, sizeof(np.protocol));
+
+        append(&np.src_port, sizeof(np.src_port));
+        append(&np.dst_port, sizeof(np.dst_port));
+        append(&np.udp_length, sizeof(np.udp_length));
+    }
+
+    // ================= ICMP =================
+    else if(protocol == IPPROTO_ICMP){
+
+        append(&np.ip_version, sizeof(np.ip_version));
+        append(&np.ttl, sizeof(np.ttl));
+        append(&np.total_length, sizeof(np.total_length));
+        append(&np.protocol, sizeof(np.protocol));
+
+        append(&np.icmp_type, sizeof(np.icmp_type));
+        append(&np.icmp_code, sizeof(np.icmp_code));
+    }
+
+    // ================= ARP =================
+    else{
+        append(&np.arp_opcode, sizeof(np.arp_opcode));
+
+        uint32_t src_ip_len = np.arp_src_ip.size();
+        append(&src_ip_len, sizeof(src_ip_len));
+        append(np.arp_src_ip.data(), src_ip_len);
+
+        uint32_t dst_ip_len = np.arp_dst_ip.size();
+        append(&dst_ip_len, sizeof(dst_ip_len));
+        append(np.arp_dst_ip.data(), dst_ip_len);
+    }
+
+    // ================= Payload =================
     uint32_t payload_size = np.payload.size();
     append(&payload_size, sizeof(payload_size));
 
@@ -86,125 +156,68 @@ vector<uint8_t> SerializePacket(const NormalizedPacket& np){
     return buffer;
 }
 
-void PushToJsonDB(const NormalizedPacket& np){
-    nlohmann::json j;
+void PushToJsonDB(const NormalizedPacket& np, uint8_t protocol){
+    using ordered_json = nlohmann::ordered_json;
 
-    j["frame"] = np.capture_sequence_number;
-    j["timestamp_sec"] = np.capture_timestamp_sec;
-    j["timestamp_usec"] = np.capture_timestamp_usec;
+    ordered_json packet;
 
-    j["src_mac"] = np.src_mac;
-    j["dst_mac"] = np.dst_mac;
-    j["ether_type"] = np.ether_type;
+    packet["frame"] = np.capture_sequence_number;
+    packet["timestamp_sec"] = np.capture_timestamp_sec;
+    packet["timestamp_usec"] = np.capture_timestamp_usec;
 
-    j["ip_version"] = np.ip_version;
-    j["src_ip"] = np.src_ip;
-    j["dst_ip"] = np.dst_ip;
-    j["ttl"] = np.ttl;
-    j["total_length"] = np.total_length;
-    j["protocol"] = np.protocol;
+    packet["src_mac"] = np.src_mac;
+    packet["dst_mac"] = np.dst_mac;
+    packet["ether_type"] = np.ether_type;
 
-    j["src_port"] = np.src_port;
-    j["dst_port"] = np.dst_port;
-    j["seq"] = np.sequence_number;
-    j["ack"] = np.acknowledgment_number;
-    j["window"] = np.window_size;
-    j["flags"] = np.tcp_flags;
-
-    j["payload_size"] = np.payload.size();
-
-	ofstream file("/home/flashhack/Work/Github/ngfw_simulator/core/databases/subject-database.json", ios::app);
-	if (!file.is_open()) {
-        cerr << "ERROR: Could not open subject-database.json\n";
-        return;
+    if(np.ether_type != 0x0806){
+        packet["src_ip"] = np.src_ip;
+        packet["dst_ip"] = np.dst_ip;
     }
-    file << j.dump() << endl;
+    
+    packet["ttl"] = np.ttl;
+    packet["protocol"] = np.protocol;
+
+    if (protocol == IPPROTO_TCP) {
+        packet["src_port"] = np.src_port;
+        packet["dst_port"] = np.dst_port;
+        packet["seq"] = np.sequence_number;
+        packet["ack"] = np.acknowledgment_number;
+        packet["flags"] = np.tcp_flags;
+        packet["window"] = np.window_size;
+        packet["app_protocol"] = np.app_protocol;
+    }
+    else if (protocol == IPPROTO_UDP) {
+        packet["src_port"] = np.src_port;
+        packet["dst_port"] = np.dst_port;
+        packet["udp_length"] = np.udp_length;
+        packet["app_protocol"] = np.app_protocol;
+    }
+    else if (protocol == IPPROTO_ICMP) {
+        packet["icmp_type"] = np.icmp_type;
+        packet["icmp_code"] = np.icmp_code;
+    }
+    else { // ARP
+        packet["arp_opcode"] = np.arp_opcode;
+        packet["arp_src_ip"] = np.arp_src_ip;
+        packet["arp_dst_ip"] = np.arp_dst_ip;
+    }
+
+    packet["payload_size"] = np.payload.size();
+
+    ordered_json database = ordered_json::array();
+
+    ifstream in("core/databases/subject-database.json");
+    if (in.good()) {
+        try { in >> database; }
+        catch (...) { database = ordered_json::array(); }
+    }
+
+    database.push_back(packet);
+
+    ofstream out("core/databases/subject-database.json");
+    out << database.dump(4);
+
 }
-
-// void print_hex_ascii_line(const u_char *payload, int len, int offset){
-// 	int i;
-// 	int gap;
-// 	const u_char *ch;
-
-// 	/* offset */
-// 	printf("%05d   ", offset);
-
-// 	/* hex */
-// 	ch = payload;
-// 	for(i = 0; i < len; i++) {
-// 		printf("%02x ", *ch);
-// 		ch++;
-// 		/* print extra space after 8th byte for visual aid */
-// 		if (i == 7)
-// 			printf(" ");
-// 	}
-// 	/* print space to handle line less than 8 bytes */
-// 	if (len < 8)
-// 		printf(" ");
-
-// 	/* fill hex gap with spaces if not full line */
-// 	if (len < 16) {
-// 		gap = 16 - len;
-// 		for (i = 0; i < gap; i++) {
-// 			printf("   ");
-// 		}
-// 	}
-
-// 	printf("   ");
-
-// 	/* ascii (if printable) */
-// 	ch = payload;
-// 	for(i = 0; i < len; i++) {
-// 		if (isprint(*ch))
-// 			printf("%c", *ch);
-// 		else
-// 			printf(".");
-// 		ch++;
-// 	}
-
-// 	printf("\n");
-
-//     return;
-// }
-
-// void print_payload(const u_char* payload, int len){
-//     int len_rem = len;
-// 	int line_width = 16;			/* number of bytes per line */
-// 	int line_len;
-// 	int offset = 0;					/* zero-based offset counter */
-// 	const u_char *ch = payload;
-
-// 	if (len <= 0)
-// 		return;
-
-// 	/* data fits on one line */
-// 	if (len <= line_width) {
-// 		print_hex_ascii_line(ch, len, offset);
-// 		return;
-// 	}
-
-// 	/* data spans multiple lines */
-// 	for ( ;; ) {
-// 		/* compute current line length */
-// 		line_len = line_width % len_rem;
-// 		/* print line */
-// 		print_hex_ascii_line(ch, line_len, offset);
-// 		/* compute total remaining */
-// 		len_rem = len_rem - line_len;
-// 		/* shift pointer to remaining bytes to print */
-// 		ch = ch + line_len;
-// 		/* add offset */
-// 		offset = offset + line_width;
-// 		/* check if we have line width chars or less */
-// 		if (len_rem <= line_width) {
-// 			/* print last line and get out */
-// 			print_hex_ascii_line(ch, len_rem, offset);
-// 			break;
-// 		}
-// 	}
-
-//     return;
-// }
 
 void PacketHandler(u_char *args, const struct pcap_pkthdr *header, const u_char *packet) {
 
@@ -242,6 +255,25 @@ void PacketHandler(u_char *args, const struct pcap_pkthdr *header, const u_char 
 
     cout << "L1: " << np.src_mac << " -> " << np.dst_mac << "\n";
 
+    /* ================= ARP (Non-IP) ================= */
+    if (np.ether_type == 0x0806) {
+        const sniff_arp* arp =
+            (sniff_arp*)(packet + SIZE_ETHERNET);
+
+        np.arp_opcode = ntohs(arp->arp_op);
+
+        np.arp_src_ip = inet_ntoa(*(in_addr*)arp->arp_spa);
+
+        np.arp_dst_ip = inet_ntoa(*(in_addr*)arp->arp_tpa);
+
+        cout << "ARP: " << np.arp_src_ip << " -> " << np.arp_dst_ip << " | Opcode: " << np.arp_opcode << "\n";
+
+        PushToJsonDB(np, 0);
+        auto serialized = SerializePacket(np, 0);
+        SendToPEP(serialized);
+        return;
+    }
+
     /* ================= L2 ================= */
     ip = (sniff_ip*)(packet + SIZE_ETHERNET);
 
@@ -270,48 +302,92 @@ void PacketHandler(u_char *args, const struct pcap_pkthdr *header, const u_char 
     << " | Protocol: " << (int)np.protocol
     << "\n";
 
-    if (np.protocol != IPPROTO_TCP) {
-        cout << "Not TCP — skipping\n";
-        cout << "-----------------------------------\n";
-        return;
-    }
-
     /* ================= L3 ================= */
-    tcp = (sniff_tcp*)(packet + SIZE_ETHERNET + size_ip);
 
-    int size_tcp = TH_OFF(tcp) * 4;
-    if (size_tcp < 20) {
-        cout << "Invalid TCP header length\n";
-        return;
+    // Case 1: TCP
+    if (np.protocol == IPPROTO_TCP) {
+        tcp = (sniff_tcp*)(packet + SIZE_ETHERNET + size_ip);
+
+        int size_tcp = TH_OFF(tcp) * 4;
+        if (size_tcp < 20) {
+            cout << "Invalid TCP header length\n";
+            return;
+        }
+
+        np.src_port = ntohs(tcp->th_sport);
+        np.dst_port = ntohs(tcp->th_dport);
+        np.sequence_number = ntohl(tcp->th_seq);
+        np.acknowledgment_number = ntohl(tcp->th_ack);
+        np.window_size = ntohs(tcp->th_win);
+        np.tcp_flags = tcp->th_flags;
+
+        cout << "L3: TCP "
+        << np.src_port << " -> " << np.dst_port
+        << " | Seq: " << np.sequence_number
+        << " | Ack: " << np.acknowledgment_number
+        << "\n";
+
+        /* ================= Payload ================= */
+        const u_char* payload = packet + SIZE_ETHERNET + size_ip + size_tcp;
+        int size_payload = np.total_length - (size_ip + size_tcp);
+        if (size_payload <= 0) {
+            cout << "No Payload\n";
+        }
+        else {
+            np.payload.assign(payload, payload + size_payload);
+            cout << "Payload size: " << size_payload << " bytes\n";
+        }
+            
     }
+    // Case 2 UDP
+    else if(np.protocol == IPPROTO_UDP){
+        const sniff_udp* udp =
+            (sniff_udp*)(packet + SIZE_ETHERNET + size_ip);
 
-    np.src_port = ntohs(tcp->th_sport);
-    np.dst_port = ntohs(tcp->th_dport);
-    np.sequence_number = ntohl(tcp->th_seq);
-    np.acknowledgment_number = ntohl(tcp->th_ack);
-    np.window_size = ntohs(tcp->th_win);
-    np.tcp_flags = tcp->th_flags;
+        np.src_port = ntohs(udp->uh_sport);
+        np.dst_port = ntohs(udp->uh_dport);
+        np.udp_length = ntohs(udp->uh_ulen);
 
-    cout << "L3: "
-    << np.src_port << " -> " << np.dst_port
-    << " | Seq: " << np.sequence_number
-    << " | Ack: " << np.acknowledgment_number
-    << "\n";
+        cout << "L3: UDP "
+        << np.src_port << " -> " << np.dst_port
+        << "\n";
 
-    /* ================= Payload ================= */
-    const u_char* payload = packet + SIZE_ETHERNET + size_ip + size_tcp;
-    int size_payload = np.total_length - (size_ip + size_tcp);
+        const u_char* payload =packet + SIZE_ETHERNET + size_ip + 8;
 
-    if (size_payload > 0) {
-        np.payload.assign(payload, payload + size_payload);
-        cout << "Payload size: " << size_payload << " bytes\n";
-    } else {
-        cout << "No Payload\n";
+        int size_payload = np.udp_length - 8;
+
+        if (size_payload > 0){
+            np.payload.assign(payload, payload + size_payload);
+            cout << "Payload size: " << size_payload << " bytes \n";
+        }
+        else{
+            cout << "No payload";
+        }
+    }
+    // Case 3 ICMP
+    else if(np.protocol == IPPROTO_ICMP){
+         const sniff_icmp* icmp =
+            (sniff_icmp*)(packet + SIZE_ETHERNET + size_ip);
+
+        np.icmp_type = icmp->icmp_type;
+        np.icmp_code = icmp->icmp_code;
+
+        cout << "L3: ICMP type = " << (int)np.icmp_type
+        << " code = " << (int)np.icmp_code
+        << "\n";
+
+        const int icmp_header_len = sizeof(sniff_icmp);
+        const u_char* payload = packet + SIZE_ETHERNET + size_ip + icmp_header_len;
+        int size_payload = np.total_length - (size_ip + icmp_header_len);
+
+        if (size_payload > 0)
+            np.payload.assign(payload, payload + size_payload);
     }
 
     cout << "-----------------------------------\n";
-	PushToJsonDB(np);
-	auto serialized = SerializePacket(np);
+    np.app_protocol = DetectAppProtocol(np.protocol,np.src_port,np.dst_port);
+	PushToJsonDB(np,np.protocol);
+	auto serialized = SerializePacket(np, np.protocol);
 	SendToPEP(serialized);
 }
 
@@ -327,7 +403,6 @@ string FindInterface(){
         cerr << "No devices found.\n";
     }
 
-    // cout << "First device: " << alldevices->name << endl;
     string device_name = alldevices -> name;
     pcap_freealldevs(alldevices);
     return device_name;
@@ -336,16 +411,20 @@ string FindInterface(){
 void Sniff(string name){
     bpf_u_int32 net, mask;
     char errbuf[PCAP_ERRBUF_SIZE];
+    
     // Why true in pcap_openlive() ?
     // Packet sniffers (e.g., Wireshark) automatically enables promiscuous mode by default when starting a packet capture.
     // This allows your network interface card (NIC) to pass all traffic it sees to the capture engine, rather than just traffic addressed to your machine.
-    pcap_t* handle = pcap_open_live(name.c_str(), 1024, true, 100, errbuf);
+    pcap_t* handle = pcap_open_live(name.c_str(), 65535, true, 100, errbuf);
+
+    // Could happen due to fault in configurations of interface or lack of permissions
     if(handle == NULL){
         cerr << "Couldn't open device " << name << " for sniffing \n"  << errbuf << endl;
         return;
     }
+    // Not all interfaces manufactured support Ethernet/pcap headers
     if (pcap_datalink(handle) != DLT_EN10MB){
-	    cerr << "Device " << name << "doesn't support provide Ethernet headers (not supported)";
+	    cerr << "Device " << name << "doesn't support/provide Ethernet headers (not supported)";
         pcap_close(handle);
         return;
     }
@@ -354,13 +433,23 @@ void Sniff(string name){
 		net = 0;
 		mask = 0;
 	}
-	InitPEPSocket();
+
+    // Trying to connect to PEP via unix socket
+    if(!InitPEPSocket()){
+        cout << "Exiting because of unix socket failure...\n";
+        return;
+    }
+    else{
+        cout << "Packet Capture connect to Policy Enforcement Point succesfully!\n";
+    }
+
+    // Starting infinite loop of capture
     pcap_loop(handle, 0, PacketHandler, nullptr);
+    // Close Session (only called if we capture finite number of packets, so it's not necessary called)
     pcap_close(handle);
 }
 
-int main(int argc, char *argv[])
-{
+int main(int argc, char *argv[]){
     const string device = FindInterface();
     cout << device << endl;
     Sniff(device);
