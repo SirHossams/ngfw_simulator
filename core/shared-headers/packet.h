@@ -140,10 +140,9 @@ struct NormalizedPacket {
     string arp_dst_ip; 
 
     /* ===== Application Layer ===== */
-//     string transport_protocol_name;   Useless
     string app_protocol; // "HTTP", "DNS", etc.
-
-    /* ===== Payload ===== */
+    vector<uint8_t> ssl_certificate; // Holds raw certificate bytes if found
+    /* === Payload === */
     vector<uint8_t> payload;
 };
 
