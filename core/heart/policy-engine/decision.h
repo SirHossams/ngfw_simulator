@@ -1,8 +1,0 @@
-typedef enum
-{
-    DECISION_ALLOW,
-    DECISION_DROP,
-    DECISION_REDIRECT,
-    DECISION_SANDBOX,
-    DECISION_INSPECT
-} decision_t;

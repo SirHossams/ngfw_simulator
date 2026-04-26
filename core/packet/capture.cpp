@@ -139,12 +139,33 @@ vector<uint8_t> SerializePacket(const NormalizedPacket& np, uint8_t protocol){
     append(&np.capture_sequence_number, sizeof(np.capture_sequence_number));
     append(&np.capture_timestamp_sec, sizeof(np.capture_timestamp_sec));
     append(&np.capture_timestamp_usec, sizeof(np.capture_timestamp_usec));
+
+    uint32_t src_mac_len = np.src_mac.size();
+    append(&src_mac_len, sizeof(src_mac_len));
+    append(np.src_mac.data(), src_mac_len);
+
+    uint32_t dst_mac_len = np.dst_mac.size();
+    append(&dst_mac_len, sizeof(dst_mac_len));
+    append(np.dst_mac.data(), dst_mac_len);
+
     append(&np.ether_type, sizeof(np.ether_type));
 
-    // ================= TCP =================
     if(protocol == IPPROTO_TCP){
         append(&np.ip_version, sizeof(np.ip_version));
+
+        uint32_t src_ip_len = np.src_ip.size();
+        append(&src_ip_len, sizeof(src_ip_len));
+        append(np.src_ip.data(), src_ip_len);
+
+        uint32_t dst_ip_len = np.dst_ip.size();
+        append(&dst_ip_len, sizeof(dst_ip_len));
+        append(np.dst_ip.data(), dst_ip_len);
+
         append(&np.ttl, sizeof(np.ttl));
+        append(&np.header_checksum, sizeof(np.header_checksum));
+        append(&np.identification, sizeof(np.identification));
+        append(&np.flags, sizeof(np.flags));
+        append(&np.fragment_offset, sizeof(np.fragment_offset));
         append(&np.total_length, sizeof(np.total_length));
         append(&np.protocol, sizeof(np.protocol));
 
@@ -156,35 +177,69 @@ vector<uint8_t> SerializePacket(const NormalizedPacket& np, uint8_t protocol){
         append(&np.window_size, sizeof(np.window_size));
         append(&np.tcp_flags, sizeof(np.tcp_flags));
 
-        // Append SSL Certificate
+        uint32_t app_protocol_len = np.app_protocol.size();
+        append(&app_protocol_len, sizeof(app_protocol_len));
+        append(np.app_protocol.data(), app_protocol_len);
+
         uint32_t cert_size = np.ssl_certificate.size();
         append(&cert_size, sizeof(cert_size));
         if (!np.ssl_certificate.empty()) {
             append(np.ssl_certificate.data(), np.ssl_certificate.size());
         }
     }
-    // ================= UDP =================
     else if(protocol == IPPROTO_UDP){
         append(&np.ip_version, sizeof(np.ip_version));
+
+        uint32_t src_ip_len = np.src_ip.size();
+        append(&src_ip_len, sizeof(src_ip_len));
+        append(np.src_ip.data(), src_ip_len);
+
+        uint32_t dst_ip_len = np.dst_ip.size();
+        append(&dst_ip_len, sizeof(dst_ip_len));
+        append(np.dst_ip.data(), dst_ip_len);
+
         append(&np.ttl, sizeof(np.ttl));
+        append(&np.header_checksum, sizeof(np.header_checksum));
+        append(&np.identification, sizeof(np.identification));
+        append(&np.flags, sizeof(np.flags));
+        append(&np.fragment_offset, sizeof(np.fragment_offset));
         append(&np.total_length, sizeof(np.total_length));
         append(&np.protocol, sizeof(np.protocol));
 
         append(&np.src_port, sizeof(np.src_port));
         append(&np.dst_port, sizeof(np.dst_port));
         append(&np.udp_length, sizeof(np.udp_length));
+
+        uint32_t app_protocol_len = np.app_protocol.size();
+        append(&app_protocol_len, sizeof(app_protocol_len));
+        append(np.app_protocol.data(), app_protocol_len);
     }
-    // ================= ICMP =================
     else if(protocol == IPPROTO_ICMP){
         append(&np.ip_version, sizeof(np.ip_version));
+
+        uint32_t src_ip_len = np.src_ip.size();
+        append(&src_ip_len, sizeof(src_ip_len));
+        append(np.src_ip.data(), src_ip_len);
+
+        uint32_t dst_ip_len = np.dst_ip.size();
+        append(&dst_ip_len, sizeof(dst_ip_len));
+        append(np.dst_ip.data(), dst_ip_len);
+
         append(&np.ttl, sizeof(np.ttl));
+        append(&np.header_checksum, sizeof(np.header_checksum));
+        append(&np.identification, sizeof(np.identification));
+        append(&np.flags, sizeof(np.flags));
+        append(&np.fragment_offset, sizeof(np.fragment_offset));
         append(&np.total_length, sizeof(np.total_length));
         append(&np.protocol, sizeof(np.protocol));
 
         append(&np.icmp_type, sizeof(np.icmp_type));
         append(&np.icmp_code, sizeof(np.icmp_code));
+
+        uint32_t app_protocol_len = np.app_protocol.size();
+        append(&app_protocol_len, sizeof(app_protocol_len));
+        append(np.app_protocol.data(), app_protocol_len);
     }
-    // ================= ARP =================
     else if(np.ether_type == 0x0806){
         append(&np.arp_opcode, sizeof(np.arp_opcode));
 
@@ -197,7 +252,6 @@ vector<uint8_t> SerializePacket(const NormalizedPacket& np, uint8_t protocol){
         append(np.arp_dst_ip.data(), dst_ip_len);
     }
 
-    // ================= Payload =================
     uint32_t payload_size = np.payload.size();
     append(&payload_size, sizeof(payload_size));
 
