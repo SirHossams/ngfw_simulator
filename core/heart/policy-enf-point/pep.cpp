@@ -5,13 +5,21 @@
 #include <vector>
 #include <unistd.h>
 #include <cstring>
-#include <pcap.h>
+#include <thread>
+#include <atomic>
 
 using namespace std;
 
+// Globals
 int pep_server_socket = -1;
 int capture_client_socket = -1;
 int pe_network_socket = -1;
+atomic<bool> keep_running{true};
+
+struct VerdictReply {
+    uint64_t seq_num;
+    uint8_t verdict; // 1 for Allow, 0 for Drop
+};
 
 bool InitPktCapSocket(){
     pep_server_socket = socket(AF_UNIX, SOCK_STREAM, 0);
@@ -74,32 +82,68 @@ bool SendToPE(const vector<uint8_t>& data) {
     return true;
 }
 
+void VerdictReceiverLoop() {
+    while (keep_running) {
+        VerdictReply reply{0, 0};
+        int bytes_read = recv(pe_network_socket, &reply, sizeof(reply), 0);
+        
+        // If recv returns 0 or -1, the socket was closed or an error occurred.
+        if (bytes_read <= 0) {
+            if (keep_running) {
+                cout << "PE disconnected. Shutting down verdict thread...\n";
+                keep_running = false;
+            }
+            break;
+        }
+
+        if (reply.verdict == 1) {
+            cout << "[VERDICT] Frame #" << reply.seq_num << " -> ALLOW. Packet forwarded.\n";
+        } else {
+            cout << "[VERDICT] Frame #" << reply.seq_num << " -> DROP. Packet destroyed.\n";
+        }
+    }
+}
+
 int main() {
-    // 1. Connect to PE first
     if (!ConnectToPE()) {
         cerr << "Failed to connect to PE. Is pe running?\n";
         return 1;
     }
 
-    // 2. Setup Unix server to receive from capture
     if (!InitPktCapSocket()) {
         return 1;
     }
 
-    while (true) {
+    // Start the asynchronous verdict listener thread
+    thread verdict_thread(VerdictReceiverLoop);
+
+    // Main Thread Loop: Continuously forward incoming packets
+    while (keep_running) {
         vector<uint8_t> packet_data = ReceiveFromPC();
         
         if (packet_data.empty()) {
             cout << "Capture module disconnected. Exiting PEP...\n";
+            keep_running = false;
             break;
         }
 
-        cout << "PEP forwarding packet of size: " << packet_data.size() << " bytes\n";
-        
         if (!SendToPE(packet_data)) {
             cout << "PE disconnected or error forwarding. Exiting PEP...\n";
+            keep_running = false;
             break;
         }
+    }
+
+    // Clean up and force the background thread to close gracefully
+    keep_running = false;
+    
+    // Shutdown the network socket safely. 
+    // This forces the blocking `recv` inside the verdict thread to wake up and return 0.
+    shutdown(pe_network_socket, SHUT_RDWR);
+    
+    // Wait for the background thread to finish its last loop
+    if (verdict_thread.joinable()) {
+        verdict_thread.join();
     }
 
     close(capture_client_socket);
@@ -107,5 +151,6 @@ int main() {
     close(pe_network_socket);
     unlink("/tmp/pep.sock");
     
+    cout << "PEP Shutdown successfully.\n";
     return 0;
 }
