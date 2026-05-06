@@ -36,7 +36,6 @@ public:
         catch(...) { return false; }
 
         for (const auto& rule : acl_db) {
-            // Thanks to your JSON edits, we can now safely read these directly as strings
             string ip1 = rule.value("ip_address_1", "0");
             string ip2 = rule.value("ip_address_2", "0");
             string mac1 = rule.value("mac_address_1", "0");

@@ -1,0 +1,88 @@
+[
+    {
+        "name": "TCP_NULL_SCAN",
+        "protocol": 6,
+        "tcp_flags": 0,
+        "description": "No TCP flags set",
+        "score": 70
+    },
+    {
+        "name": "TCP_SYN_FIN",
+        "protocol": 6,
+        "tcp_flags_invalid": ["SYN+FIN"],
+        "description": "Invalid TCP flag combination",
+        "score": 85
+    },
+    {
+        "name": "TCP_SYN_RST",
+        "protocol": 6,
+        "tcp_flags_invalid": ["SYN+RST"],
+        "description": "Invalid TCP flag combination",
+        "score": 85
+    },
+    {
+        "name": "LAND_ATTACK",
+        "src_ip_equals_dst_ip": true,
+        "src_port_equals_dst_port": true,
+        "description": "Same src/dst IP and port",
+        "score": 90
+    },
+    {
+        "name": "LOW_TTL",
+        "ttl_less_than": 5,
+        "description": "TTL too low",
+        "score": 50
+    },
+    {
+        "name": "INVALID_CHECKSUM",
+        "header_checksum_invalid": true,
+        "description": "Bad IP checksum",
+        "score": 80
+    },
+    {
+        "name": "FRAGMENTED_PACKET",
+        "fragment_offset_greater_than": 0,
+        "description": "Packet fragmentation detected",
+        "score": 40
+    },
+    {
+        "name": "OVERLAPPING_FRAGMENTS",
+        "fragment_overlap": true,
+        "description": "Fragment overlap (evasion)",
+        "score": 95
+    },
+    {
+        "name": "ZERO_WINDOW",
+        "protocol": 6,
+        "window_size": 0,
+        "description": "Zero TCP window",
+        "score": 50
+    },
+    {
+        "name": "INVALID_PORT_ZERO",
+        "src_port": 0,
+        "dst_port": 0,
+        "description": "Invalid port usage",
+        "score": 60
+    },
+    {
+        "name": "ICMP_ODD_TYPE",
+        "protocol": 1,
+        "icmp_type_not_in": [0, 3, 5, 8, 11],
+        "description": "Unusual ICMP type",
+        "score": 40
+    },
+    {
+        "name": "ARP_REPLY_MISMATCH",
+        "arp_opcode": 2,
+        "arp_ip_mac_mismatch": true,
+        "description": "ARP spoofing indicator",
+        "score": 90
+    },
+    {
+        "name": "LARGE_TOTAL_LENGTH",
+        "total_length_greater_than": 2000,
+        "description": "Unusually large IP packet",
+        "score": 45
+    }
+]

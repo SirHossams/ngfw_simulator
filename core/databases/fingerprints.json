@@ -1,0 +1,122 @@
+[
+    {
+        "app_protocol": "HTTP",
+        "payload": ["username=", "password="],
+        "description": "Credential Submission",
+        "score": 40
+    },
+    {
+        "app_protocol": "HTTP",
+        "payload": ["Authorization: Basic"],
+        "description": "Basic Auth Credentials Exposure",
+        "score": 60
+    },
+    {
+        "app_protocol": "HTTP",
+        "payload": ["' OR 1=1", "\" OR 1=1", "UNION SELECT", "--", "DROP TABLE"],
+        "description": "SQL Injection Attempt",
+        "score": 95
+    },
+    {
+        "app_protocol": "HTTP",
+        "payload": ["<script>", "javascript:", "onerror=", "onload="],
+        "description": "Cross-Site Scripting (XSS)",
+        "score": 90
+    },
+    {
+        "app_protocol": "HTTP",
+        "payload": ["../", "..\\", "/etc/passwd", "boot.ini"],
+        "description": "Directory Traversal",
+        "score": 85
+    },
+    {
+        "app_protocol": "HTTP",
+        "payload": ["cmd.exe", "/bin/sh", "powershell", "bash -i"],
+        "description": "Command Injection",
+        "score": 95
+    },
+    {
+        "app_protocol": "HTTP",
+        "payload": ["wget http", "curl http"],
+        "description": "Remote File Download Attempt",
+        "score": 80
+    },
+    {
+        "app_protocol": "HTTP",
+        "payload": ["Content-Type: application/x-www-form-urlencoded"],
+        "description": "Form Submission",
+        "score": 20
+    },
+    {
+        "app_protocol": "HTTP",
+        "payload": ["Set-Cookie:"],
+        "description": "Cookie Handling",
+        "score": 10
+    },
+    {
+        "app_protocol": "DNS",
+        "payload": [".xyz", ".top", ".gq"],
+        "description": "Suspicious TLD Query",
+        "score": 50
+    },
+    {
+        "app_protocol": "DNS",
+        "payload": ["AAAAAAAAAAAA", "BBBBBBBBBBBB"],
+        "description": "High Repetition DNS Payload (possible tunneling)",
+        "score": 70
+    },
+    {
+        "app_protocol": "SMTP",
+        "payload": ["HELO", "MAIL FROM", "RCPT TO"],
+        "description": "SMTP Session",
+        "score": 10
+    },
+    {
+        "app_protocol": "SMTP",
+        "payload": ["Subject:", "Content-Transfer-Encoding: base64"],
+        "description": "Email with Encoded Payload",
+        "score": 60
+    },
+    {
+        "app_protocol": "FTP",
+        "payload": ["USER", "PASS"],
+        "description": "FTP Login محاولة",
+        "score": 30
+    },
+    {
+        "app_protocol": "FTP",
+        "payload": ["STOR", "RETR"],
+        "description": "FTP File Transfer",
+        "score": 20
+    },
+    {
+        "app_protocol": "TLS",
+        "payload": ["\u0001\u0000", "\u0002\u0000"],
+        "description": "Suspicious TLS Handshake Pattern",
+        "score": 50
+    },
+    {
+        "app_protocol": "HTTP",
+        "payload": ["MZ", "This program cannot be run in DOS mode"],
+        "description": "Windows Executable Transfer",
+        "score": 85
+    },
+    {
+        "app_protocol": "HTTP",
+        "payload": ["PK\u0003\u0004"],
+        "description": "ZIP File Transfer",
+        "score": 40
+    },
+    {
+        "app_protocol": "HTTP",
+        "payload": ["eval(", "base64_decode", "exec("],
+        "description": "Obfuscated Webshell Activity",
+        "score": 95
+    },
+    {
+        "app_protocol": "HTTP",
+        "payload": ["<?php", "?>"],
+        "description": "PHP Code Injection",
+        "score": 85
+    }
+]
