@@ -92,58 +92,70 @@ struct sniff_arp {
     uint8_t  arp_tpa[4]; /* target protocol address */
 };
 
-/* Normalized Packet */
+
+#define MAX_PAYLOAD_SIZE 1500
+#define MAX_CERT_SIZE 4096
+#define MAC_ADDR_STR_LEN 18
+#define IP_ADDR_STR_LEN 16
+#define APP_PROTO_STR_LEN 16
+#define INTERFACE_STR_LEN 16
+
 struct NormalizedPacket {
 
     /* ===== Capture Metadata ===== */
     uint64_t capture_sequence_number;
     uint32_t capture_timestamp_sec;
     uint32_t capture_timestamp_usec;
+    char interface[INTERFACE_STR_LEN];
 
     /* ===== Layer 1 ===== */
-    string src_mac;
-    string dst_mac;
+    char src_mac[MAC_ADDR_STR_LEN];
+    char dst_mac[MAC_ADDR_STR_LEN];
     uint16_t ether_type;
 
     /* ===== Layer 2 ===== */
     uint8_t  ip_version;
-    string src_ip;
-    string dst_ip;
+    char src_ip[IP_ADDR_STR_LEN];
+    char dst_ip[IP_ADDR_STR_LEN];
     uint8_t  ttl;
     uint16_t header_checksum;
     uint16_t identification;
     uint16_t flags;
     uint16_t fragment_offset;
     uint16_t total_length;
-    uint8_t  protocol = 0;   // IP protocol number
+    uint8_t  protocol;   // IP protocol number
 
     /* ===== Layer 3 ===== */
-    uint16_t src_port = 0;
-    uint16_t dst_port = 0;
+    uint16_t src_port;
+    uint16_t dst_port;
 
     /* TCP */
-    uint32_t sequence_number = 0;
-    uint32_t acknowledgment_number = 0;
-    uint16_t window_size = 0;
-    uint8_t  tcp_flags = 0;
+    uint32_t sequence_number;
+    uint32_t acknowledgment_number;
+    uint16_t window_size;
+    uint8_t  tcp_flags;
 
     /* UDP */
-    uint16_t udp_length = 0;
+    uint16_t udp_length;
 
     /* ICMP */
-    uint8_t icmp_type = 0;
-    uint8_t icmp_code = 0;
+    uint8_t icmp_type;
+    uint8_t icmp_code;
 
     /* ARP */
-    uint16_t arp_opcode = 0;
-    string arp_src_ip;
-    string arp_dst_ip; 
+    uint16_t arp_opcode;
+    char arp_src_ip[IP_ADDR_STR_LEN];
+    char arp_dst_ip[IP_ADDR_STR_LEN]; 
 
     /* ===== Application Layer ===== */
-    string app_protocol; // "HTTP", "DNS", etc.
-    vector<uint8_t> ssl_certificate; // Holds raw certificate bytes if found
+    char app_protocol[APP_PROTO_STR_LEN]; // "HTTP", "DNS", etc.
+    
+    uint32_t ssl_cert_size;
+    uint8_t ssl_certificate[MAX_CERT_SIZE];
+
     /* === Payload === */
-    vector<uint8_t> payload;
+    uint32_t payload_size;
+    uint8_t payload[MAX_PAYLOAD_SIZE];
 };
 
 

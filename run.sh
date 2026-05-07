@@ -38,7 +38,7 @@ PID_PE=$!
 sleep 1
 
 # 3. Start PEP
-./build/pep > /dev/null 2>&1 &
+./build/pep &
 PID_PEP=$!
 
 sleep 1
@@ -52,7 +52,7 @@ echo "[*] System running. Displaying PE output for 10 seconds..."
 echo "--------------------------------------------------------"
 
 # Wait 10 seconds, but allow interruption
-sleep 10
+sleep 30
 
 echo "--------------------------------------------------------"
 

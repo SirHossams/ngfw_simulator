@@ -1,16 +1,7 @@
 [
     {
-        "ip_address_1":"192.168.1.5",
+        "ip_address_1": "142.250.181.174",
         "ip_address_2":"0",
-        "mac_address_1":"0",
-        "mac_address_2":"0",
-        "port_1":0,
-        "port_2":0,
-        "type":0
-    },
-    {
-        "ip_address_1": "0",
-        "ip_address_2":"104.18.7.75",
         "mac_address_1":"0",
         "mac_address_2":"0",
         "port_1":0,

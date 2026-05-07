@@ -8,6 +8,9 @@
 #include <cstring>
 #include <sstream>
 #include <iomanip>
+#include <thread>
+#include <mutex>
+#include <atomic>
 
 using namespace std;
 
@@ -16,29 +19,31 @@ using namespace std;
 
 void PacketHandler(u_char *args, const struct pcap_pkthdr *header, const u_char *packet);
 void PushToJsonDB(const NormalizedPacket& np, uint8_t protocol);
-vector<uint8_t> SerializePacket(const NormalizedPacket& np, uint8_t protocol);
 string DetectAppProtocol(uint8_t protocol, uint16_t src_port,uint16_t dst_port);
 bool InitPEPSocket();
-bool SendToPEP(const vector<uint8_t>& data);
-vector<uint8_t> ExtractSSLCertificate(const vector<uint8_t>& payload);
+bool SendToPEP(const NormalizedPacket& np);
+void ExtractSSLCertificate(NormalizedPacket& np);
 
 /*______________________________________*/
 
-// -1 is Default (not connected)
+// Globals for Multi-threading & Interfaces
 int pep_socket = -1;
+mutex pep_mutex; // Prevents threads from sending data at the exact same time
+mutex db_mutex;  // Prevents JSON file corruption
 
-bool SendToPEP(const vector<uint8_t>& data){
-    if (pep_socket < 0)
-        return false;
+string global_interface_1 = "";
+string global_interface_2 = "";
+atomic<uint64_t> global_packet_counter{1}; // Thread-safe counter
 
-    uint32_t size = data.size();
+bool SendToPEP(const NormalizedPacket& np){
+    lock_guard<mutex> lock(pep_mutex); // Lock socket access
 
-    // MSG_NOSIGNAL prevents the capture program from crashing if PEP disconnects
-    if (send(pep_socket, &size, sizeof(size), MSG_NOSIGNAL) <= 0)
-        return false;
+    if (pep_socket < 0) return false;
 
-    if (send(pep_socket, data.data(), data.size(), MSG_NOSIGNAL) <= 0)
-        return false;
+    uint32_t size = sizeof(NormalizedPacket);
+
+    if (send(pep_socket, &size, sizeof(size), MSG_NOSIGNAL) <= 0) return false;
+    if (send(pep_socket, &np, sizeof(NormalizedPacket), MSG_NOSIGNAL) <= 0) return false;
 
     return true;
 }
@@ -61,221 +66,71 @@ bool InitPEPSocket(){
     return true;
 }
 
-vector<uint8_t> ExtractSSLCertificate(const vector<uint8_t>& payload) {
-    if (payload.size() < 5) return {};
+void ExtractSSLCertificate(NormalizedPacket& np) {
+    if (np.payload_size < 5) return;
 
     size_t i = 0;
-    while (i + 5 <= payload.size()) {
-        // TLS Record header: Content Type (1 byte), Version (2 bytes), Length (2 bytes)
-        uint8_t content_type = payload[i];
-        
-        // 0x16 is the Handshake Content Type
-        if (content_type != 0x16) {
-            break; 
-        }
+    while (i + 5 <= np.payload_size) {
+        uint8_t content_type = np.payload[i];
+        if (content_type != 0x16) break; 
 
-        uint16_t record_len = (payload[i+3] << 8) | payload[i+4];
-        
-        if (i + 5 + record_len > payload.size()) {
-            break; // Incomplete record, packet might be fragmented
-        }
+        uint16_t record_len = (np.payload[i+3] << 8) | np.payload[i+4];
+        if (i + 5 + record_len > np.payload_size) break; 
 
-        // Parse Handshake messages within this specific TLS record
         size_t hs_offset = i + 5;
         size_t hs_end = i + 5 + record_len;
 
         while (hs_offset + 4 <= hs_end) {
-            uint8_t hs_type = payload[hs_offset];
-            uint32_t hs_len = (payload[hs_offset+1] << 16) | (payload[hs_offset+2] << 8) | payload[hs_offset+3];
+            uint8_t hs_type = np.payload[hs_offset];
+            uint32_t hs_len = (np.payload[hs_offset+1] << 16) | (np.payload[hs_offset+2] << 8) | np.payload[hs_offset+3];
 
-            if (hs_offset + 4 + hs_len > hs_end) {
-                break; // Incomplete handshake message
-            }
+            if (hs_offset + 4 + hs_len > hs_end) break;
 
-            // Handshake Type 11 (0x0b) is the Certificate message
             if (hs_type == 0x0b) { 
-                return vector<uint8_t>(payload.begin() + hs_offset, payload.begin() + hs_offset + 4 + hs_len);
+                np.ssl_cert_size = hs_len <= MAX_CERT_SIZE ? hs_len : MAX_CERT_SIZE;
+                memcpy(np.ssl_certificate, &np.payload[hs_offset + 4], np.ssl_cert_size);
+                return;
             }
-
-            // Move to the next handshake message in this record
             hs_offset += 4 + hs_len;
         }
-        
-        // Move to the next TLS record in the TCP payload
         i += 5 + record_len; 
     }
-    return {};
 }
 
 string DetectAppProtocol(uint8_t protocol, uint16_t src_port,uint16_t dst_port){
     if (protocol == IPPROTO_TCP) {
-        if (src_port == 80 || dst_port == 80)
-            return "HTTP";
-        if (src_port == 443 || dst_port == 443)
-            return "HTTPS";
-        if (src_port == 22 || dst_port == 22)
-            return "SSH";
+        if (src_port == 80 || dst_port == 80) return "HTTP";
+        if (src_port == 443 || dst_port == 443) return "HTTPS";
+        if (src_port == 22 || dst_port == 22) return "SSH";
         return "TCP-UNKNOWN";
     }
     else if (protocol == IPPROTO_UDP) {
-        if (src_port == 53 || dst_port == 53)
-            return "DNS";
+        if (src_port == 53 || dst_port == 53) return "DNS";
         return "UDP-UNKNOWN";
     }
-    else if (protocol == IPPROTO_ICMP)
-        return "ICMP";
-    else
-        return "ARP";
+    else if (protocol == IPPROTO_ICMP) return "ICMP";
+    else return "ARP";
 }
 
-vector<uint8_t> SerializePacket(const NormalizedPacket& np, uint8_t protocol){
-    vector<uint8_t> buffer;
-
-    auto append = [&](const void* data, size_t size) {
-        const uint8_t* ptr = static_cast<const uint8_t*>(data);
-        buffer.insert(buffer.end(), ptr, ptr + size);
-    };
-    
-    append(&np.capture_sequence_number, sizeof(np.capture_sequence_number));
-    append(&np.capture_timestamp_sec, sizeof(np.capture_timestamp_sec));
-    append(&np.capture_timestamp_usec, sizeof(np.capture_timestamp_usec));
-
-    uint32_t src_mac_len = np.src_mac.size();
-    append(&src_mac_len, sizeof(src_mac_len));
-    append(np.src_mac.data(), src_mac_len);
-
-    uint32_t dst_mac_len = np.dst_mac.size();
-    append(&dst_mac_len, sizeof(dst_mac_len));
-    append(np.dst_mac.data(), dst_mac_len);
-
-    append(&np.ether_type, sizeof(np.ether_type));
-
-    if(protocol == IPPROTO_TCP){
-        append(&np.ip_version, sizeof(np.ip_version));
-
-        uint32_t src_ip_len = np.src_ip.size();
-        append(&src_ip_len, sizeof(src_ip_len));
-        append(np.src_ip.data(), src_ip_len);
-
-        uint32_t dst_ip_len = np.dst_ip.size();
-        append(&dst_ip_len, sizeof(dst_ip_len));
-        append(np.dst_ip.data(), dst_ip_len);
-
-        append(&np.ttl, sizeof(np.ttl));
-        append(&np.header_checksum, sizeof(np.header_checksum));
-        append(&np.identification, sizeof(np.identification));
-        append(&np.flags, sizeof(np.flags));
-        append(&np.fragment_offset, sizeof(np.fragment_offset));
-        append(&np.total_length, sizeof(np.total_length));
-        append(&np.protocol, sizeof(np.protocol));
-
-        append(&np.src_port, sizeof(np.src_port));
-        append(&np.dst_port, sizeof(np.dst_port));
-
-        append(&np.sequence_number, sizeof(np.sequence_number));
-        append(&np.acknowledgment_number, sizeof(np.acknowledgment_number));
-        append(&np.window_size, sizeof(np.window_size));
-        append(&np.tcp_flags, sizeof(np.tcp_flags));
-
-        uint32_t app_protocol_len = np.app_protocol.size();
-        append(&app_protocol_len, sizeof(app_protocol_len));
-        append(np.app_protocol.data(), app_protocol_len);
-
-        uint32_t cert_size = np.ssl_certificate.size();
-        append(&cert_size, sizeof(cert_size));
-        if (!np.ssl_certificate.empty()) {
-            append(np.ssl_certificate.data(), np.ssl_certificate.size());
-        }
-    }
-    else if(protocol == IPPROTO_UDP){
-        append(&np.ip_version, sizeof(np.ip_version));
-
-        uint32_t src_ip_len = np.src_ip.size();
-        append(&src_ip_len, sizeof(src_ip_len));
-        append(np.src_ip.data(), src_ip_len);
-
-        uint32_t dst_ip_len = np.dst_ip.size();
-        append(&dst_ip_len, sizeof(dst_ip_len));
-        append(np.dst_ip.data(), dst_ip_len);
-
-        append(&np.ttl, sizeof(np.ttl));
-        append(&np.header_checksum, sizeof(np.header_checksum));
-        append(&np.identification, sizeof(np.identification));
-        append(&np.flags, sizeof(np.flags));
-        append(&np.fragment_offset, sizeof(np.fragment_offset));
-        append(&np.total_length, sizeof(np.total_length));
-        append(&np.protocol, sizeof(np.protocol));
-
-        append(&np.src_port, sizeof(np.src_port));
-        append(&np.dst_port, sizeof(np.dst_port));
-        append(&np.udp_length, sizeof(np.udp_length));
-
-        uint32_t app_protocol_len = np.app_protocol.size();
-        append(&app_protocol_len, sizeof(app_protocol_len));
-        append(np.app_protocol.data(), app_protocol_len);
-    }
-    else if(protocol == IPPROTO_ICMP){
-        append(&np.ip_version, sizeof(np.ip_version));
-
-        uint32_t src_ip_len = np.src_ip.size();
-        append(&src_ip_len, sizeof(src_ip_len));
-        append(np.src_ip.data(), src_ip_len);
-
-        uint32_t dst_ip_len = np.dst_ip.size();
-        append(&dst_ip_len, sizeof(dst_ip_len));
-        append(np.dst_ip.data(), dst_ip_len);
-
-        append(&np.ttl, sizeof(np.ttl));
-        append(&np.header_checksum, sizeof(np.header_checksum));
-        append(&np.identification, sizeof(np.identification));
-        append(&np.flags, sizeof(np.flags));
-        append(&np.fragment_offset, sizeof(np.fragment_offset));
-        append(&np.total_length, sizeof(np.total_length));
-        append(&np.protocol, sizeof(np.protocol));
-
-        append(&np.icmp_type, sizeof(np.icmp_type));
-        append(&np.icmp_code, sizeof(np.icmp_code));
-
-        uint32_t app_protocol_len = np.app_protocol.size();
-        append(&app_protocol_len, sizeof(app_protocol_len));
-        append(np.app_protocol.data(), app_protocol_len);
-    }
-    else if(np.ether_type == 0x0806){
-        append(&np.arp_opcode, sizeof(np.arp_opcode));
-
-        uint32_t src_ip_len = np.arp_src_ip.size();
-        append(&src_ip_len, sizeof(src_ip_len));
-        append(np.arp_src_ip.data(), src_ip_len);
-
-        uint32_t dst_ip_len = np.arp_dst_ip.size();
-        append(&dst_ip_len, sizeof(dst_ip_len));
-        append(np.arp_dst_ip.data(), dst_ip_len);
-    }
-
-    uint32_t payload_size = np.payload.size();
-    append(&payload_size, sizeof(payload_size));
-
-    if (!np.payload.empty())
-        append(np.payload.data(), np.payload.size());
-
-    return buffer;
-}
 
 void PushToJsonDB(const NormalizedPacket& np, uint8_t protocol){
+    lock_guard<mutex> lock(db_mutex); // Lock file access
+
     using ordered_json = nlohmann::ordered_json;
     ordered_json packet;
 
+    packet["interface"] = string(np.interface);
     packet["frame"] = np.capture_sequence_number;
     packet["timestamp_sec"] = np.capture_timestamp_sec;
     packet["timestamp_usec"] = np.capture_timestamp_usec;
 
-    packet["src_mac"] = np.src_mac;
-    packet["dst_mac"] = np.dst_mac;
+    packet["src_mac"] = string(np.src_mac);
+    packet["dst_mac"] = string(np.dst_mac);
     packet["ether_type"] = np.ether_type;
 
     if(np.ether_type != 0x0806){
-        packet["src_ip"] = np.src_ip;
-        packet["dst_ip"] = np.dst_ip;
+        packet["src_ip"] = string(np.src_ip);
+        packet["dst_ip"] = string(np.dst_ip);
     }
     
     packet["ttl"] = np.ttl;
@@ -288,12 +143,12 @@ void PushToJsonDB(const NormalizedPacket& np, uint8_t protocol){
         packet["ack"] = np.acknowledgment_number;
         packet["flags"] = np.tcp_flags;
         packet["window"] = np.window_size;
-        packet["app_protocol"] = np.app_protocol;
+        packet["app_protocol"] = string(np.app_protocol);
         
-        if (!np.ssl_certificate.empty()) {
+        if (np.ssl_cert_size > 0) {
             stringstream hex_cert;
-            for (auto b : np.ssl_certificate) {
-                hex_cert << hex << setw(2) << setfill('0') << (int)b;
+            for (uint32_t i = 0; i < np.ssl_cert_size; i++) {
+                hex_cert << hex << setw(2) << setfill('0') << (int)np.ssl_certificate[i];
             }
             packet["ssl_certificate_hex"] = hex_cert.str();
         }
@@ -302,27 +157,27 @@ void PushToJsonDB(const NormalizedPacket& np, uint8_t protocol){
         packet["src_port"] = np.src_port;
         packet["dst_port"] = np.dst_port;
         packet["udp_length"] = np.udp_length;
-        packet["app_protocol"] = np.app_protocol;
+        packet["app_protocol"] = string(np.app_protocol);
     }
     else if (protocol == IPPROTO_ICMP) {
         packet["icmp_type"] = np.icmp_type;
         packet["icmp_code"] = np.icmp_code;
     }
-    else if (np.ether_type == 0x0806) { // ARP
+    else if (np.ether_type == 0x0806) {
         packet["arp_opcode"] = np.arp_opcode;
-        packet["arp_src_ip"] = np.arp_src_ip;
-        packet["arp_dst_ip"] = np.arp_dst_ip;
+        packet["arp_src_ip"] = string(np.arp_src_ip);
+        packet["arp_dst_ip"] = string(np.arp_dst_ip);
     }
 
-    packet["payload_size"] = np.payload.size();
+    packet["payload_size"] = np.payload_size;
 
     ordered_json database = ordered_json::array();
-
     ifstream in("core/databases/subject-database.json");
     if (in.good()) {
         try { in >> database; }
         catch (...) { database = ordered_json::array(); }
     }
+    in.close();
 
     database.push_back(packet);
 
@@ -330,72 +185,52 @@ void PushToJsonDB(const NormalizedPacket& np, uint8_t protocol){
     out << database.dump(4);
 }
 
-void PacketHandler(u_char *, const struct pcap_pkthdr *header, const u_char *packet) {
-
-    static uint64_t global_packet_counter = 1;
+void PacketHandler(u_char *args, const struct pcap_pkthdr *header, const u_char *packet) {
+    const char* iface_name = (const char*)args;
 
     const sniff_ethernet* ethernet;
     const sniff_ip* ip;
     const sniff_tcp* tcp;
 
-    NormalizedPacket np;
+    NormalizedPacket np = {}; // IMPORTANT: Zero-initializes all bytes!
 
-    /* ================= Capture Metadata ================= */
+    strncpy(np.interface, iface_name, INTERFACE_STR_LEN - 1);
     np.capture_sequence_number = global_packet_counter++;
     np.capture_timestamp_sec = header->ts.tv_sec;
     np.capture_timestamp_usec = header->ts.tv_usec;
 
-    cout << "Sequence no. #" << np.capture_sequence_number
-    << " | Time: " << np.capture_timestamp_sec << "." << np.capture_timestamp_usec << "\n";
+    cout << "[" << np.interface << "] Seq #" << np.capture_sequence_number << "\n";
 
     /* ================= L1 ================= */
     ethernet = (sniff_ethernet*)(packet); 
 
-    auto mac_to_string = [](const u_char* mac) {
-        stringstream ss;
-        for (int i = 0; i < 6; i++) {
-            ss << hex << setw(2) << setfill('0') << (int)mac[i];
-            if (i != 5) ss << ":";
-        }
-        return ss.str();
+    auto format_mac = [](char* dest, const u_char* mac) {
+        sprintf(dest, "%02x:%02x:%02x:%02x:%02x:%02x", mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
     };
 
-    np.src_mac = mac_to_string(ethernet->ether_shost);
-    np.dst_mac = mac_to_string(ethernet->ether_dhost);
+    format_mac(np.src_mac, ethernet->ether_shost);
+    format_mac(np.dst_mac, ethernet->ether_dhost);
     np.ether_type = ntohs(ethernet->ether_type);
 
-    cout << "L1: " << np.src_mac << " -> " << np.dst_mac << "\n";
-
     /* ================= L2 ================= */
-
-    /* ======== ARP (Non-IP) ======== */
     if (np.ether_type == 0x0806) {
         const sniff_arp* arp = (sniff_arp*)(packet + SIZE_ETHERNET); 
-
         np.arp_opcode = ntohs(arp->arp_op);
-        np.arp_src_ip = inet_ntoa(*(in_addr*)arp->arp_spa); 
-        np.arp_dst_ip = inet_ntoa(*(in_addr*)arp->arp_tpa);
-
-        cout << "ARP: " << np.arp_src_ip << " -> " << np.arp_dst_ip << " | Opcode: " << np.arp_opcode << "\n";
+        strncpy(np.arp_src_ip, inet_ntoa(*(in_addr*)arp->arp_spa), IP_ADDR_STR_LEN - 1); 
+        strncpy(np.arp_dst_ip, inet_ntoa(*(in_addr*)arp->arp_tpa), IP_ADDR_STR_LEN - 1);
 
         PushToJsonDB(np, 0);
-        auto serialized = SerializePacket(np, 0);
-        SendToPEP(serialized);
+        SendToPEP(np);
         return;
     }
     
-    /* ======== IP Protocol ======== */
     ip = (sniff_ip*)(packet + SIZE_ETHERNET);
-
     int size_ip = IP_HL(ip) * 4;
-    if (size_ip < 20) {
-        cout << "Invalid IP header length\n";
-        return;
-    }
+    if (size_ip < 20) return;
 
     np.ip_version = IP_V(ip);
-    np.src_ip = inet_ntoa(ip->ip_src); 
-    np.dst_ip = inet_ntoa(ip->ip_dst);
+    strncpy(np.src_ip, inet_ntoa(ip->ip_src), IP_ADDR_STR_LEN - 1); 
+    strncpy(np.dst_ip, inet_ntoa(ip->ip_dst), IP_ADDR_STR_LEN - 1);
     np.ttl = ip->ip_ttl;
     np.header_checksum = ntohs(ip->ip_sum); 
     np.identification = ntohs(ip->ip_id);
@@ -407,21 +242,11 @@ void PacketHandler(u_char *, const struct pcap_pkthdr *header, const u_char *pac
     np.total_length = ntohs(ip->ip_len);
     np.protocol = ip->ip_p;
 
-    cout << "L2: " << np.src_ip << " -> " << np.dst_ip
-    << " | TTL: " << (int)np.ttl
-    << " | Protocol: " << (int)np.protocol
-    << "\n";
-
     /* ================= L3 ================= */
-
     if (np.protocol == IPPROTO_TCP) {
         tcp = (sniff_tcp*)(packet + SIZE_ETHERNET + size_ip);
-
         int size_tcp = TH_OFF(tcp) * 4;
-        if (size_tcp < 20) {
-            cout << "Invalid TCP header length\n";
-            return;
-        }
+        if (size_tcp < 20) return;
 
         np.src_port = ntohs(tcp->th_sport);
         np.dst_port = ntohs(tcp->th_dport);
@@ -430,134 +255,125 @@ void PacketHandler(u_char *, const struct pcap_pkthdr *header, const u_char *pac
         np.window_size = ntohs(tcp->th_win);
         np.tcp_flags = tcp->th_flags;
 
-        cout << "L3: TCP "
-        << np.src_port << " -> " << np.dst_port
-        << " | Seq: " << np.sequence_number
-        << " | Ack: " << np.acknowledgment_number
-        << "\n";
-
         /* ================= L4 (Payload) ================= */
         const u_char* payload = packet + SIZE_ETHERNET + size_ip + size_tcp;
         int size_payload = np.total_length - (size_ip + size_tcp);
         
         if (size_payload > 0) {
-            np.payload.assign(payload, payload + size_payload);
-            cout << "Payload size: " << size_payload << " bytes\n";
-        } else {
-            cout << "No Payload\n";
+            np.payload_size = size_payload <= MAX_PAYLOAD_SIZE ? size_payload : MAX_PAYLOAD_SIZE;
+            memcpy(np.payload, payload, np.payload_size);
         }
         
-        np.app_protocol = DetectAppProtocol(np.protocol, np.src_port, np.dst_port);
+        string proto = DetectAppProtocol(np.protocol, np.src_port, np.dst_port);
+        strncpy(np.app_protocol, proto.c_str(), APP_PROTO_STR_LEN - 1);
         
-        // Extract SSL Certificate for HTTPS traffic
-        if (np.app_protocol == "HTTPS" && size_payload > 0) {
-            np.ssl_certificate = ExtractSSLCertificate(np.payload);
-            if (!np.ssl_certificate.empty()) {
-                cout << "Extracted SSL Certificate: " << np.ssl_certificate.size() << " bytes\n";
-                return;
-            }
+        if (proto == "HTTPS" && np.payload_size > 0) {
+            ExtractSSLCertificate(np);
         }
     }
     else if(np.protocol == IPPROTO_UDP){
         const sniff_udp* udp = (sniff_udp*)(packet + SIZE_ETHERNET + size_ip);
-
         np.src_port = ntohs(udp->uh_sport);
         np.dst_port = ntohs(udp->uh_dport);
         np.udp_length = ntohs(udp->uh_ulen);
-
-        cout << "L3: UDP " << np.src_port << " -> " << np.dst_port << "\n";
 
         const u_char* payload = packet + SIZE_ETHERNET + size_ip + 8;
         int size_payload = np.udp_length - 8;
 
         if (size_payload > 0){
-            np.payload.assign(payload, payload + size_payload);
-            cout << "Payload size: " << size_payload << " bytes \n";
-        } else {
-            cout << "No payload\n";
+            np.payload_size = size_payload <= MAX_PAYLOAD_SIZE ? size_payload : MAX_PAYLOAD_SIZE;
+            memcpy(np.payload, payload, np.payload_size);
         }
         
-        np.app_protocol = DetectAppProtocol(np.protocol, np.src_port, np.dst_port);
+        string proto = DetectAppProtocol(np.protocol, np.src_port, np.dst_port);
+        strncpy(np.app_protocol, proto.c_str(), APP_PROTO_STR_LEN - 1);
     }
     else if(np.protocol == IPPROTO_ICMP){
         const sniff_icmp* icmp = (sniff_icmp*)(packet + SIZE_ETHERNET + size_ip);
-
         np.icmp_type = icmp->icmp_type;
         np.icmp_code = icmp->icmp_code;
-
-        cout << "L3: ICMP type = " << (int)np.icmp_type
-        << " code = " << (int)np.icmp_code << "\n";
 
         const int icmp_header_len = sizeof(sniff_icmp);
         const u_char* payload = packet + SIZE_ETHERNET + size_ip + icmp_header_len;
         int size_payload = np.total_length - (size_ip + icmp_header_len);
 
         if (size_payload > 0) {
-            np.payload.assign(payload, payload + size_payload);
+            np.payload_size = size_payload <= MAX_PAYLOAD_SIZE ? size_payload : MAX_PAYLOAD_SIZE;
+            memcpy(np.payload, payload, np.payload_size);
         }
         
-        np.app_protocol = DetectAppProtocol(np.protocol, np.src_port, np.dst_port);
+        string proto = DetectAppProtocol(np.protocol, np.src_port, np.dst_port);
+        strncpy(np.app_protocol, proto.c_str(), APP_PROTO_STR_LEN - 1);
     }
 
-    cout << "-----------------------------------\n";
     PushToJsonDB(np, np.protocol);
-    auto serialized = SerializePacket(np, np.protocol);
-    SendToPEP(serialized);
+    SendToPEP(np);
 }
 
-string FindInterface(){
+void FindInterfaces(){
     pcap_if_t *alldevices;
     char errbuf[PCAP_ERRBUF_SIZE];
 
     if (pcap_findalldevs(&alldevices, errbuf) == -1) {
-        cerr << "Error finding devices: " <<  errbuf << '\n';
+        cerr << "Error finding devices: " << errbuf << '\n';
+        return;
     }
 
-    if (!alldevices) {
-        cerr << "No devices found.\n";
+    int count = 0;
+    for(pcap_if_t *d = alldevices; d != NULL; d = d->next) {
+        // Skip loopback "lo" unless testing locally
+        if (string(d->name) == "lo" || string(d->name) == "any") continue; 
+
+        if (count == 0) global_interface_1 = d->name;
+        if (count == 1) global_interface_2 = d->name;
+        
+        count++;
+        if (count == 2) break; 
     }
 
-    string device_name = alldevices -> name;
     pcap_freealldevs(alldevices);
-    return device_name;
 }
 
 void Sniff(string name){
-    bpf_u_int32 net, mask;
+    if (name.empty()) return;
+
     char errbuf[PCAP_ERRBUF_SIZE];
-    
     pcap_t* handle = pcap_open_live(name.c_str(), 65535, true, 100, errbuf);
 
     if(handle == NULL){
-        cerr << "Couldn't open device " << name << " for sniffing \n"  << errbuf << endl;
+        cerr << "Couldn't open device " << name << ": " << errbuf << endl;
         return;
-    }
-    if (pcap_datalink(handle) != DLT_EN10MB){
-        cerr << "Device " << name << " doesn't support/provide Ethernet headers (not supported)";
-        pcap_close(handle);
-        return;
-    }
-    if (pcap_lookupnet(name.c_str(), &net, &mask, errbuf) != 0) {
-        cerr << "Couldn't get properties of device " << name << '\n' <<  errbuf;
-        net = 0;
-        mask = 0;
     }
 
-    if(!InitPEPSocket()){
-        cout << "Exiting because of unix socket failure...\n";
-        return;
-    }
-    else{
-        cout << "Packet Capture connect to Policy Enforcement Point succesfully!\n";
-    }
-
-    pcap_loop(handle, 0, PacketHandler, nullptr);
+    cout << "Started sniffing on interface: " << name << endl;
+    
+    // Pass the name as argument so the handler knows which interface it came from
+    pcap_loop(handle, 0, PacketHandler, (u_char*)name.c_str());
+    
     pcap_close(handle);
 }
 
 int main(){
-    const string device = FindInterface();
-    cout << "Sniffing on: " << device << endl;
-    Sniff(device);
+    // Find top two interfaces
+    FindInterfaces();
+
+    if (global_interface_1.empty()) {
+        cerr << "No interfaces found to sniff on!\n";
+        return 1;
+    }
+
+    if(!InitPEPSocket()){
+        cout << "Exiting because of unix socket failure...\n";
+        return 1;
+    }
+    cout << "Capture module connected to PEP!\n";
+
+    // Spawn threads for each interface
+    thread t1(Sniff, global_interface_1);
+    thread t2(Sniff, global_interface_2);
+
+    if (t1.joinable()) t1.join();
+    if (t2.joinable()) t2.join();
+
     return 0;
 }

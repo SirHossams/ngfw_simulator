@@ -3,13 +3,13 @@
         "app_protocol": "HTTP",
         "payload": ["username=", "password="],
         "description": "Credential Submission",
-        "score": 40
+        "score": 95
     },
     {
         "app_protocol": "HTTP",
         "payload": ["Authorization: Basic"],
         "description": "Basic Auth Credentials Exposure",
-        "score": 60
+        "score": 90
     },
     {
         "app_protocol": "HTTP",
@@ -80,7 +80,7 @@
     {
         "app_protocol": "FTP",
         "payload": ["USER", "PASS"],
-        "description": "FTP Login محاولة",
+        "description": "FTP Login",
         "score": 30
     },
     {
