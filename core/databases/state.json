@@ -1,0 +1,9 @@
+[
+    {
+        "src_ip": "192.168.1.5",
+        "dst_ip": "142.250.181.174",
+        "src_port": 0,
+        "dst_port": 0,
+        "app_protocol": "ICMP"
+    }
+]

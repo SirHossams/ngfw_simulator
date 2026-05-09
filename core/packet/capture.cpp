@@ -11,6 +11,7 @@
 #include <thread>
 #include <mutex>
 #include <atomic>
+#include <pcap.h>
 
 using namespace std;
 
@@ -26,17 +27,17 @@ void ExtractSSLCertificate(NormalizedPacket& np);
 
 /*______________________________________*/
 
-// Globals for Multi-threading & Interfaces
 int pep_socket = -1;
-mutex pep_mutex; // Prevents threads from sending data at the exact same time
-mutex db_mutex;  // Prevents JSON file corruption
+mutex pep_mutex; 
+mutex db_mutex;  
 
 string global_interface_1 = "";
 string global_interface_2 = "";
-atomic<uint64_t> global_packet_counter{1}; // Thread-safe counter
+
+atomic<uint64_t> global_packet_counter{1}; 
 
 bool SendToPEP(const NormalizedPacket& np){
-    lock_guard<mutex> lock(pep_mutex); // Lock socket access
+    lock_guard<mutex> lock(pep_mutex); 
 
     if (pep_socket < 0) return false;
 
@@ -44,7 +45,7 @@ bool SendToPEP(const NormalizedPacket& np){
 
     if (send(pep_socket, &size, sizeof(size), MSG_NOSIGNAL) <= 0) return false;
     if (send(pep_socket, &np, sizeof(NormalizedPacket), MSG_NOSIGNAL) <= 0) return false;
-
+    
     return true;
 }
 
@@ -112,9 +113,8 @@ string DetectAppProtocol(uint8_t protocol, uint16_t src_port,uint16_t dst_port){
     else return "ARP";
 }
 
-
 void PushToJsonDB(const NormalizedPacket& np, uint8_t protocol){
-    lock_guard<mutex> lock(db_mutex); // Lock file access
+    lock_guard<mutex> lock(db_mutex); 
 
     using ordered_json = nlohmann::ordered_json;
     ordered_json packet;
@@ -192,7 +192,7 @@ void PacketHandler(u_char *args, const struct pcap_pkthdr *header, const u_char 
     const sniff_ip* ip;
     const sniff_tcp* tcp;
 
-    NormalizedPacket np = {}; // IMPORTANT: Zero-initializes all bytes!
+    NormalizedPacket np = {}; 
 
     strncpy(np.interface, iface_name, INTERFACE_STR_LEN - 1);
     np.capture_sequence_number = global_packet_counter++;
@@ -201,7 +201,6 @@ void PacketHandler(u_char *args, const struct pcap_pkthdr *header, const u_char 
 
     cout << "[" << np.interface << "] Seq #" << np.capture_sequence_number << "\n";
 
-    /* ================= L1 ================= */
     ethernet = (sniff_ethernet*)(packet); 
 
     auto format_mac = [](char* dest, const u_char* mac) {
@@ -212,7 +211,6 @@ void PacketHandler(u_char *args, const struct pcap_pkthdr *header, const u_char 
     format_mac(np.dst_mac, ethernet->ether_dhost);
     np.ether_type = ntohs(ethernet->ether_type);
 
-    /* ================= L2 ================= */
     if (np.ether_type == 0x0806) {
         const sniff_arp* arp = (sniff_arp*)(packet + SIZE_ETHERNET); 
         np.arp_opcode = ntohs(arp->arp_op);
@@ -242,7 +240,6 @@ void PacketHandler(u_char *args, const struct pcap_pkthdr *header, const u_char 
     np.total_length = ntohs(ip->ip_len);
     np.protocol = ip->ip_p;
 
-    /* ================= L3 ================= */
     if (np.protocol == IPPROTO_TCP) {
         tcp = (sniff_tcp*)(packet + SIZE_ETHERNET + size_ip);
         int size_tcp = TH_OFF(tcp) * 4;
@@ -255,7 +252,6 @@ void PacketHandler(u_char *args, const struct pcap_pkthdr *header, const u_char 
         np.window_size = ntohs(tcp->th_win);
         np.tcp_flags = tcp->th_flags;
 
-        /* ================= L4 (Payload) ================= */
         const u_char* payload = packet + SIZE_ETHERNET + size_ip + size_tcp;
         int size_payload = np.total_length - (size_ip + size_tcp);
         
@@ -311,6 +307,10 @@ void PacketHandler(u_char *args, const struct pcap_pkthdr *header, const u_char 
 }
 
 void FindInterfaces(){
+    if (!global_interface_1.empty() && !global_interface_2.empty()) {
+        return; 
+    }
+
     pcap_if_t *alldevices;
     char errbuf[PCAP_ERRBUF_SIZE];
 
@@ -319,16 +319,19 @@ void FindInterfaces(){
         return;
     }
 
-    int count = 0;
     for(pcap_if_t *d = alldevices; d != NULL; d = d->next) {
-        // Skip loopback "lo" unless testing locally
         if (string(d->name) == "lo" || string(d->name) == "any") continue; 
 
-        if (count == 0) global_interface_1 = d->name;
-        if (count == 1) global_interface_2 = d->name;
-        
-        count++;
-        if (count == 2) break; 
+        if (global_interface_1.empty()) {
+            global_interface_1 = d->name;
+        } 
+        else if (global_interface_2.empty() && global_interface_1 != d->name) {
+            global_interface_2 = d->name;
+        }
+
+        if (!global_interface_1.empty() && !global_interface_2.empty()) {
+            break;
+        }
     }
 
     pcap_freealldevs(alldevices);
@@ -347,14 +350,12 @@ void Sniff(string name){
 
     cout << "Started sniffing on interface: " << name << endl;
     
-    // Pass the name as argument so the handler knows which interface it came from
     pcap_loop(handle, 0, PacketHandler, (u_char*)name.c_str());
     
     pcap_close(handle);
 }
 
 int main(){
-    // Find top two interfaces
     FindInterfaces();
 
     if (global_interface_1.empty()) {
@@ -368,9 +369,16 @@ int main(){
     }
     cout << "Capture module connected to PEP!\n";
 
-    // Spawn threads for each interface
-    thread t1(Sniff, global_interface_1);
-    thread t2(Sniff, global_interface_2);
+    // Spawn threads for each interface (if the string isn't empty)
+    thread t1;
+    thread t2;
+
+    if (!global_interface_1.empty()) {
+        t1 = thread(Sniff, global_interface_1);
+    }
+    if (!global_interface_2.empty()) {
+        t2 = thread(Sniff, global_interface_2);
+    }
 
     if (t1.joinable()) t1.join();
     if (t2.joinable()) t2.join();
