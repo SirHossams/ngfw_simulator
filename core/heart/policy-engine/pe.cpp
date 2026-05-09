@@ -6,6 +6,9 @@
 #include <unistd.h>
 #include <vector>
 #include <fstream>
+#include <csignal>
+#include <mutex>
+#include <atomic>
 #include <nlohmann/json.hpp>
 #include "../../shared-headers/packet.h"
 
@@ -14,9 +17,18 @@ using namespace std;
 int sock = -1, connection = -1;
 #define PORT 9000
 
+atomic<bool> reload_requested{false};
+atomic<bool> keep_running{true};
+
+void signal_handler(int signum) {
+    if (signum == SIGUSR1) {
+        reload_requested = true;
+    }
+}
+
 // ================= Prototypes =================
 int InitPEPSocket();
-bool ReceiveFromPEP(NormalizedPacket& pkt);
+int ReceiveFromPEP(NormalizedPacket& pkt);
 void SendVerdictToPEP(uint64_t seq_num, bool allow);
 
 // ================= Trust Algorithm =================
@@ -26,23 +38,45 @@ private:
     nlohmann::json ip_rep_db;
     nlohmann::json fp_db;
     nlohmann::json anom_db;
+    mutex db_mutex;
 
 public:
     TrustAlgorithm() {
+        Reload();
+    }
+
+    void Reload() {
+        lock_guard<mutex> lock(db_mutex);
+        nlohmann::json temp_ip, temp_fp, temp_anom;
+
         ifstream in_ip("core/databases/ip_reputation.json");
-        if (in_ip.is_open()) { try { in_ip >> ip_rep_db; } catch(...) {} in_ip.close(); }
+        if (in_ip.is_open()) {
+            try { in_ip >> temp_ip; ip_rep_db = temp_ip; } 
+            catch(...) { cerr << "[!] Failed to parse ip_reputation.json\n"; }
+            in_ip.close();
+        }
 
         ifstream in_fp("core/databases/fingerprints.json");
-        if (in_fp.is_open()) { try { in_fp >> fp_db; } catch(...) {} in_fp.close(); }
+        if (in_fp.is_open()) {
+            try { in_fp >> temp_fp; fp_db = temp_fp; } 
+            catch(...) { cerr << "[!] Failed to parse fingerprints.json\n"; }
+            in_fp.close();
+        }
 
         ifstream in_anom("core/databases/anomalies.json");
-        if (in_anom.is_open()) { try { in_anom >> anom_db; } catch(...) {} in_anom.close(); }
+        if (in_anom.is_open()) {
+            try { in_anom >> temp_anom; anom_db = temp_anom; } 
+            catch(...) { cerr << "[!] Failed to parse anomalies.json\n"; }
+            in_anom.close();
+        }
+        
+        cout << "[System] PE successfully hot-reloaded Intelligence Databases.\n";
     }
 
     double Evaluate(const NormalizedPacket& pkt) {
+        lock_guard<mutex> lock(db_mutex);
         double risk_score = 0.0;
 
-        // 1. IP Reputation
         if (ip_rep_db.is_array()) {
             for (const auto& rep : ip_rep_db) {
                 if (rep.value("ip_address", "") == string(pkt.src_ip)) {
@@ -52,7 +86,6 @@ public:
             }
         }
 
-        // 2. Anomalies
         if (anom_db.is_array()) {
             for (const auto& anom : anom_db) {
                 string name = anom.value("name", "");
@@ -78,7 +111,6 @@ public:
             }
         }
 
-        // 3. Payload Investigator
         if (fp_db.is_array() && pkt.payload_size > 0) {
             string payload_str(pkt.payload, pkt.payload + pkt.payload_size);
             string pkt_app_proto(pkt.app_protocol);
@@ -143,23 +175,34 @@ int InitPEPSocket(){
         return 1;
     }
     
+    // Timeout prevents infinite freezing
+    struct timeval tv;
+    tv.tv_sec = 0;
+    tv.tv_usec = 100000; // 100ms timeout
+    setsockopt(connection, SOL_SOCKET, SO_RCVTIMEO, (const char*)&tv, sizeof tv);
+
     cout << "PEP connected to PE!\n";
     return 0;
 }
 
-bool ReceiveFromPEP(NormalizedPacket& pkt) {
+int ReceiveFromPEP(NormalizedPacket& pkt) {
     uint32_t size = 0;
     int bytes_received = recv(connection, &size, sizeof(size), 0);
-    if (bytes_received <= 0) return false;
+    
+    if (bytes_received < 0) {
+        if (errno == EAGAIN || errno == EWOULDBLOCK || errno == EINTR) return 0; // Timeout
+        return -1; // Error
+    }
+    if (bytes_received == 0) return -1; // Disconnect
 
     int total_read = 0;
     auto* ptr = reinterpret_cast<uint8_t*>(&pkt);
     while (total_read < size) {
         int bytes_read = recv(connection, ptr + total_read, size - total_read, 0);
-        if (bytes_read <= 0) break;
+        if (bytes_read <= 0) return -1;
         total_read += bytes_read;
     }
-    return true;
+    return 1;
 }
 
 void SendVerdictToPEP(uint64_t seq_num, bool allow) {
@@ -174,23 +217,34 @@ void SendVerdictToPEP(uint64_t seq_num, bool allow) {
 // ================= Main Loop =================
 
 int main() {
+    signal(SIGUSR1, signal_handler);
+
     if (InitPEPSocket() != 0) 
         return 1;
 
     TrustAlgorithm trust_engine;
 
-    while (true) {
+    while (keep_running) {
+        if (reload_requested) {
+            trust_engine.Reload();
+            reload_requested = false;
+        }
+
         NormalizedPacket pkt;
-        if (!ReceiveFromPEP(pkt)) {
+        int status = ReceiveFromPEP(pkt);
+        
+        if (status == -1) {
             cout << "PEP disconnected or error receiving.\n";
             break;
+        }
+        if (status == 0) {
+            continue;
         }
 
         cout << "PE Evaluated Frame #" << pkt.capture_sequence_number << "\n";
         
-        // Run Deep Inspection
         double risk_score = trust_engine.Evaluate(pkt);
-        bool isAllowed = (risk_score <= 80.0); // Using 80 as the threshold
+        bool isAllowed = (risk_score <= 80.0); 
         
         if (isAllowed) {
             cout << "   -> Passed Trust Algorithm (Risk Score: " << risk_score << ")\n";

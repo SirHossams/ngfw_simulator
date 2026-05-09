@@ -5,7 +5,6 @@ cleanup() {
     echo
     echo "[*] Shutting down all modules..."
 
-    # Kill processes safely
     sudo kill $PID_CAP 2>/dev/null
     kill $PID_PEP 2>/dev/null
     kill $PID_PE 2>/dev/null
@@ -18,10 +17,8 @@ cleanup() {
     exit 0
 }
 
-# Trap Ctrl+C (SIGINT) and script termination (SIGTERM)
 trap cleanup SIGINT SIGTERM
 
-# 1. Compile the project
 echo "[*] Compiling project..."
 make
 if [ $? -ne 0 ]; then
@@ -31,31 +28,33 @@ fi
 
 echo "[*] Starting modules in sequence..."
 
-# 2. Start Policy Engine (PE)
 ./build/pe &
 PID_PE=$!
-
 sleep 1
 
-# 3. Start PEP
 ./build/pep &
 PID_PEP=$!
-
 sleep 1
 
-# 4. Start Capture
 sudo ./build/capture > /dev/null 2>&1 &
 PID_CAP=$!
 
-# 5. Run for 10 seconds OR until Ctrl+C
-echo "[*] System running. Displaying PE output for 10 seconds..."
+echo "--------------------------------------------------------"
+echo "[*] System is LIVE."
+echo "[*] -> Press [ENTER] at any time to trigger a Hot Reload."
+echo "[*] -> Type 'q' and press [ENTER] to Quit."
 echo "--------------------------------------------------------"
 
-# Wait 10 seconds, but allow interruption
-sleep 30
+while true; do
+    read -r user_input
+    
+    if [[ "$user_input" == "q" || "$user_input" == "Q" ]]; then
+        break
+    fi
 
-echo "--------------------------------------------------------"
+    echo "[*] Initiating Hot Reload..."
+    pkill -SIGUSR1 -f "./build/pe$"
+    pkill -SIGUSR1 -f "./build/pep$"
+done
 
-# 6. Trigger cleanup after timeout
-echo "[*] 10 seconds passed."
 cleanup

@@ -10,6 +10,7 @@
 #include <atomic>
 #include <unordered_map>
 #include <fstream>
+#include <csignal>
 #include <nlohmann/json.hpp>
 #include "../../shared-headers/packet.h"
 
@@ -19,7 +20,9 @@ using namespace std;
 int pep_server_socket = -1;
 int capture_client_socket = -1;
 int pe_network_socket = -1;
+
 atomic<bool> keep_running{true};
+atomic<bool> reload_requested{false}; 
 
 unordered_map<uint64_t, NormalizedPacket> pending_packets;
 mutex pending_mutex;
@@ -29,11 +32,19 @@ struct VerdictReply {
     uint8_t verdict; 
 };
 
+// --- Signal Handler ---
+void signal_handler(int signum) {
+    if (signum == SIGUSR1) {
+        reload_requested = true;
+    }
+}
+
 // ================= IP And Port Checker =================
 
 class IPAndPortChecker {
 private:
     nlohmann::json acl_db;
+    mutex db_mutex; 
 
     string GetSafeString(const nlohmann::json& rule, const string& key) {
         if (!rule.contains(key)) return "0";
@@ -62,18 +73,28 @@ private:
 
 public:
     IPAndPortChecker() {
-        // PRELOAD ACL into memory to prevent file I/O bottlenecks!
+        Reload();
+    }
+
+    void Reload() {
+        lock_guard<mutex> lock(db_mutex);
         ifstream in("core/databases/acl.json"); 
         if (in.is_open()) {
-            try { in >> acl_db; } 
-            catch(...) { cerr << "Failed to parse acl.json\n"; }
+            nlohmann::json temp_db;
+            try { 
+                in >> temp_db; 
+                acl_db = temp_db; 
+                cout << "[System] PEP successfully hot-reloaded ACL Database.\n";
+            } 
+            catch(...) { cerr << "[!] Failed to parse acl.json. Keeping old rules.\n"; }
             in.close();
         } else {
-            cerr << "Warning: Could not open acl.json\n";
+            cerr << "[!] Warning: Could not open acl.json\n";
         }
     }
 
     bool CheckACL(const NormalizedPacket& pkt) {
+        lock_guard<mutex> lock(db_mutex); 
         if (!acl_db.is_array()) return false;
 
         for (const auto& rule : acl_db) {
@@ -185,6 +206,12 @@ bool InitPktCapSocket(){
     capture_client_socket = accept(pep_server_socket, nullptr, nullptr);
     if (capture_client_socket < 0) return false;
 
+    // Timeout prevents infinite freezing, allowing signals to process
+    struct timeval tv;
+    tv.tv_sec = 0;
+    tv.tv_usec = 100000; // 100ms timeout
+    setsockopt(capture_client_socket, SOL_SOCKET, SO_RCVTIMEO, (const char*)&tv, sizeof tv);
+
     cout << "Capture module connected to PEP!\n";
     return true;
 }
@@ -203,19 +230,24 @@ bool ConnectToPE() {
     return true;
 }
 
-bool ReceiveFromPC(NormalizedPacket& pkt) {
+int ReceiveFromPC(NormalizedPacket& pkt) {
     uint32_t size = 0;
     int bytes_received = recv(capture_client_socket, &size, sizeof(size), 0);
-    if (bytes_received <= 0) return false;
+    
+    if (bytes_received < 0) {
+        if (errno == EAGAIN || errno == EWOULDBLOCK || errno == EINTR) return 0; // Timeout
+        return -1; // Error
+    }
+    if (bytes_received == 0) return -1; // Disconnect
 
     int total_read = 0;
     auto* ptr = reinterpret_cast<uint8_t*>(&pkt);
     while (total_read < size) {
         int bytes_read = recv(capture_client_socket, ptr + total_read, size - total_read, 0);
-        if (bytes_read <= 0) return false;
+        if (bytes_read <= 0) return -1;
         total_read += bytes_read;
     }
-    return true;
+    return 1;
 }
 
 bool SendToPE(const NormalizedPacket& pkt) {
@@ -266,6 +298,8 @@ void VerdictReceiverLoop() {
 
 // ================= Main =================
 int main() {
+    signal(SIGUSR1, signal_handler);
+
     if (!ConnectToPE()) {
         cerr << "Failed to connect to PE.\n";
         return 1;
@@ -279,16 +313,29 @@ int main() {
     thread verdict_thread(VerdictReceiverLoop);
 
     while (keep_running) {
+        if (reload_requested) {
+            checker.Reload();
+            reload_requested = false;
+        }
+
         NormalizedPacket pkt;
-        if (!ReceiveFromPC(pkt)) {
+        int status = ReceiveFromPC(pkt);
+        
+        if (status == -1) {
             cout << "Capture module disconnected. Exiting PEP...\n";
             keep_running = false;
             break;
         }
+        if (status == 0) {
+            continue; // 100ms timeout
+        }
 
-        // 1. IP and Port Checker (ACL)
+        if (checker.CheckStateTable(pkt)) {
+            cout << "[PEP] Frame #" << pkt.capture_sequence_number << " -> Passed (Existing Session in State Table)\n";
+            continue;
+        } 
+
         if (!checker.CheckACL(pkt)) {
-            // Enhanced logging to show EXACTLY what is dropping
             string proto = strlen(pkt.app_protocol) > 0 ? pkt.app_protocol : "UNKNOWN/L2";
             cout << "[PEP] Frame #" << pkt.capture_sequence_number 
                  << " -> Dropped by ACL | Proto: " << proto 
@@ -296,13 +343,6 @@ int main() {
             continue;
         } 
         
-        // 2. State Table (Metadata Check)
-        if (checker.CheckStateTable(pkt)) {
-            cout << "[PEP] Frame #" << pkt.capture_sequence_number << " -> Passed (Existing Session in State Table)\n";
-            continue;
-        } 
-        
-        // 3. Send to PE and wait...
         {
             lock_guard<mutex> lock(pending_mutex);
             pending_packets[pkt.capture_sequence_number] = pkt;
