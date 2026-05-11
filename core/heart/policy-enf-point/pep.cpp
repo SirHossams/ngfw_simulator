@@ -22,7 +22,7 @@ int capture_client_socket = -1;
 int pe_network_socket = -1;
 
 atomic<bool> keep_running{true};
-atomic<bool> reload_requested{false}; 
+atomic<bool> reload_requested{false};
 
 unordered_map<uint64_t, NormalizedPacket> pending_packets;
 mutex pending_mutex;
@@ -32,14 +32,10 @@ struct VerdictReply {
     uint8_t verdict; 
 };
 
-// --- Signal Handler ---
-void signal_handler(int signum) {
-    if (signum == SIGUSR1) {
-        reload_requested = true;
-    }
+// Signal Handler for Hot Reload
+void signal_handler_pep(int signum) {
+    if (signum == SIGUSR1) reload_requested = true;
 }
-
-// ================= IP And Port Checker =================
 
 class IPAndPortChecker {
 private:
@@ -85,11 +81,8 @@ public:
                 in >> temp_db; 
                 acl_db = temp_db; 
                 cout << "[System] PEP successfully hot-reloaded ACL Database.\n";
-            } 
-            catch(...) { cerr << "[!] Failed to parse acl.json. Keeping old rules.\n"; }
+            } catch(...) { cerr << "[!] Failed to parse acl.json. Keeping old rules.\n"; }
             in.close();
-        } else {
-            cerr << "[!] Warning: Could not open acl.json\n";
         }
     }
 
@@ -139,8 +132,7 @@ public:
         if (!in.is_open()) return false;
 
         nlohmann::json state_db;
-        try { in >> state_db; } 
-        catch(...) { return false; }
+        try { in >> state_db; } catch(...) { return false; }
 
         for (const auto& session : state_db) {
             string src_ip = session.value("src_ip", "");
@@ -151,14 +143,11 @@ public:
 
             if (src_ip == pkt.src_ip && dst_ip == pkt.dst_ip &&
                 src_port == pkt.src_port && dst_port == pkt.dst_port &&
-                app_protocol == pkt.app_protocol) {
-                return true;
-            }
+                app_protocol == pkt.app_protocol) return true;
+                
             if (src_ip == pkt.dst_ip && dst_ip == pkt.src_ip &&
                 src_port == pkt.dst_port && dst_port == pkt.src_port &&
-                app_protocol == pkt.app_protocol) {
-                return true;
-            }
+                app_protocol == pkt.app_protocol) return true;
         }
         return false;
     }
@@ -170,8 +159,7 @@ void CreateSession(const NormalizedPacket& pkt) {
     
     ifstream in("core/databases/state.json");
     if (in.good()) {
-        try { in >> state_db; } 
-        catch (...) { state_db = ordered_json::array(); }
+        try { in >> state_db; } catch (...) { state_db = ordered_json::array(); }
     }
     in.close();
 
@@ -187,8 +175,6 @@ void CreateSession(const NormalizedPacket& pkt) {
     ofstream out("core/databases/state.json");
     out << state_db.dump(4);
 }
-
-// ================= Networking =================
 
 bool InitPktCapSocket(){
     pep_server_socket = socket(AF_UNIX, SOCK_STREAM, 0);
@@ -206,27 +192,26 @@ bool InitPktCapSocket(){
     capture_client_socket = accept(pep_server_socket, nullptr, nullptr);
     if (capture_client_socket < 0) return false;
 
-    // Timeout prevents infinite freezing, allowing signals to process
     struct timeval tv;
     tv.tv_sec = 0;
-    tv.tv_usec = 100000; // 100ms timeout
+    tv.tv_usec = 100000;
     setsockopt(capture_client_socket, SOL_SOCKET, SO_RCVTIMEO, (const char*)&tv, sizeof tv);
 
     cout << "Capture module connected to PEP!\n";
     return true;
 }
 
-bool ConnectToPE() {
+bool ConnectToModuleHead() {
     pe_network_socket = socket(AF_INET, SOCK_STREAM, 0);
     if (pe_network_socket < 0) return false;
 
     sockaddr_in addr{};
     addr.sin_family = AF_INET;
-    addr.sin_port = htons(9000);
+    addr.sin_port = htons(9000); 
     inet_pton(AF_INET, "127.0.0.1", &addr.sin_addr);
 
     if (connect(pe_network_socket, (sockaddr*)&addr, sizeof(addr)) < 0) return false;
-    cout << "PEP connected to Policy Engine!\n";
+    cout << "PEP connected to ModuleHead!\n";
     return true;
 }
 
@@ -235,12 +220,12 @@ int ReceiveFromPC(NormalizedPacket& pkt) {
     int bytes_received = recv(capture_client_socket, &size, sizeof(size), 0);
     
     if (bytes_received < 0) {
-        if (errno == EAGAIN || errno == EWOULDBLOCK || errno == EINTR) return 0; // Timeout
-        return -1; // Error
+        if (errno == EAGAIN || errno == EWOULDBLOCK || errno == EINTR) return 0;
+        return -1;
     }
-    if (bytes_received == 0) return -1; // Disconnect
+    if (bytes_received == 0) return -1;
 
-    int total_read = 0;
+    uint32_t total_read = 0;
     auto* ptr = reinterpret_cast<uint8_t*>(&pkt);
     while (total_read < size) {
         int bytes_read = recv(capture_client_socket, ptr + total_read, size - total_read, 0);
@@ -250,7 +235,7 @@ int ReceiveFromPC(NormalizedPacket& pkt) {
     return 1;
 }
 
-bool SendToPE(const NormalizedPacket& pkt) {
+bool SendToModuleHead(const NormalizedPacket& pkt) {
     if (pe_network_socket < 0) return false;
     uint32_t size = sizeof(NormalizedPacket);
     if (send(pe_network_socket, &size, sizeof(size), MSG_NOSIGNAL) <= 0) return false;
@@ -258,7 +243,6 @@ bool SendToPE(const NormalizedPacket& pkt) {
     return true;
 }
 
-// ================= Background Thread for Verdicts =================
 void VerdictReceiverLoop() {
     while (keep_running) {
         VerdictReply reply{0, 0};
@@ -266,7 +250,7 @@ void VerdictReceiverLoop() {
         
         if (bytes_read <= 0) {
             if (keep_running) {
-                cout << "PE disconnected. Shutting down verdict thread...\n";
+                cout << "ModuleHead disconnected. Shutting down verdict thread...\n";
                 keep_running = false;
             }
             break;
@@ -287,9 +271,7 @@ void VerdictReceiverLoop() {
 
         if (reply.verdict == 1) {
             cout << "[VERDICT] Frame #" << reply.seq_num << " -> ALLOW. Packet forwarded.\n";
-            if (found) {
-                CreateSession(pkt); 
-            }
+            if (found) CreateSession(pkt); 
         } else {
             cout << "[VERDICT] Frame #" << reply.seq_num << " -> DROP. Packet destroyed.\n";
         }
@@ -298,21 +280,22 @@ void VerdictReceiverLoop() {
 
 // ================= Main =================
 int main() {
-    signal(SIGUSR1, signal_handler);
+    signal(SIGUSR1, signal_handler_pep);
 
-    if (!ConnectToPE()) {
-        cerr << "Failed to connect to PE.\n";
+    if (!ConnectToModuleHead()) {
+        cerr << "Failed to connect to ModuleHead.\n";
         return 1;
     }
 
-    if (!InitPktCapSocket()) {
-        return 1;
-    }
+    if (!InitPktCapSocket()) return 1;
 
     IPAndPortChecker checker;
     thread verdict_thread(VerdictReceiverLoop);
 
     while (keep_running) {
+        if (!keep_running) break; 
+        
+        // Handle hot reload request
         if (reload_requested) {
             checker.Reload();
             reload_requested = false;
@@ -326,9 +309,7 @@ int main() {
             keep_running = false;
             break;
         }
-        if (status == 0) {
-            continue; // 100ms timeout
-        }
+        if (status == 0) continue; 
 
         if (checker.CheckStateTable(pkt)) {
             cout << "[PEP] Frame #" << pkt.capture_sequence_number << " -> Passed (Existing Session in State Table)\n";
@@ -348,8 +329,8 @@ int main() {
             pending_packets[pkt.capture_sequence_number] = pkt;
         }
 
-        if (!SendToPE(pkt)) {
-            cout << "PE disconnected or error forwarding. Exiting PEP...\n";
+        if (!SendToModuleHead(pkt)) {
+            cout << "ModuleHead disconnected or error forwarding. Exiting PEP...\n";
             keep_running = false;
             break;
         }

@@ -1,24 +1,29 @@
-# CMakeLists.txt
-cmake_minimum_required(VERSION 3.20)
-project(NGFW_Simulator VERSION 1.0 LANGUAGES CXX)
+cmake_minimum_required(VERSION 3.10)
+project(NGFW_Simulator)
 
 set(CMAKE_CXX_STANDARD 17)
-set(CMAKE_CXX_STANDARD_REQUIRED True)
 
-include_directories(${PROJECT_SOURCE_DIR}/core/shared-headers)
+# Ensure the build directory exists for outputs
+set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_SOURCE_DIR}/build)
 
-find_package(Threads REQUIRED)
-
-# Executables mapped to your project structure
+# Add Executables
 add_executable(capture core/packet/capture.cpp)
-target_link_libraries(capture pcap Threads::Threads)
-# Note: Requires nlohmann-json installed system-wide
+target_link_libraries(capture pcap pthread)
 
 add_executable(pep core/heart/policy-enf-point/pep.cpp)
-target_link_libraries(pep Threads::Threads)
+target_link_libraries(pep pthread)
 
 add_executable(pe core/heart/policy-engine/pe.cpp)
-target_link_libraries(pe Threads::Threads)
+target_link_libraries(pe pthread)
 
-add_executable(controller core/heart/controller/controller.cpp)
-target_link_libraries(controller Threads::Threads)
+# New: Module Head
+add_executable(pehead core/heart/policy-engine/pehead.cpp)
+target_link_libraries(pehead crypto ssl pthread)
+
+# New: Controller Body
+add_executable(body core/heart/controller/body.cpp)
+target_link_libraries(body crypto ssl pthread)
+
+# New: Controller Head
+add_executable(head core/heart/controller/head.cpp)
+target_link_libraries(head crypto ssl pthread)

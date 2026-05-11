@@ -1,65 +1,162 @@
-# Rules
+# Next-Generation Firewall (NGFW) Simulator
 
-1-Every module should be wrapped with **try** and **catch**, in case of failure it restart
-Example:
-'''c++
-try
-{
-    module->process_packet(packet);
-}
-catch(...)
-{
-    restart_module(module);
-}
-'''
+A high-performance, modular Next-Generation Firewall simulator built in C++ and Python. This system utilizes a split-architecture design with a Fast Path (Policy Enforcement Point) for high-speed packet routing and a Slow Path (Policy Engine) for Deep Packet Inspection using a custom Zero-Trust Trust Algorithm.
 
-2- How to compile .so files: (Not gonna be manually anyway so you can skip)
-'''shell
-g++ -shared -fPIC module1.cpp -o module1.so
-'''
+---
 
-To add new terminal functions using the module_scripts, run:-
-source module_scripts.bash
+## 📂 Repository Structure
 
-# Flow
+```text
+/
+├── src/                # Full source code (C++ modules, Python Threat Intel, headers, JSON DBs)
+├── exe/                # Pre-built/compiled executable binaries
+├── run.sh              # Main execution script for the Data Plane & Control Plane
+├── manage.sh           # Management console script for Controller instructions
+├── Makefile            # Build configuration
+└── README.md           # Project documentation
 
-### System Startup
+```
 
-<pre>'''
-controller starts
-controller spwan all process (fork + exec)
-controller creates sockets:
-'''
-  capture ↔ controller
-  controller ↔ module1
-  controller ↔ module2
-  controller ↔ policy-engine
-  controller ↔ pep
-  controller ↔ logger
-  controller ↔ interface handler
-  controller ↔ interface speaker
-'''
-encryption system initializes (PE, PEP performs key exchange with with each other and other modules, then the encryption becomes symmetric)
+---
 
-### Packet
+## 🛠️ Prerequisites and Dependencies
 
-NIC recieves packet
-capture.cpp captures packet, parses it and convert it into packet.h
-capture.cpp uses crypto.cpp to encrypt the packet
-push it to PEP via socket and push to Subject database directly.
-PEP logs via logger.cpp
-PE recieves the packet and decrypt it
-PE import all 4 databases and sends packet to module 1, module 2 and ...
-PE evaultes the packet and calcalute it's score from: 4 databases + modules trust score
-PE makes it decision and send it to to PEP
-PEP enforces decision (if dropped ===> packet destroyed: else ===> send to other modules or forward to egress interface)
-PEP logs via logger.cpp and collector.cpp
-packet leaves firewall in any case (Interface explaination is missing)
+To successfully compile and run the simulator, your environment must meet the following requirements:
+
+**System Requirements:**
+
+* **OS:** Linux (Ubuntu 20.04/22.04, Debian, Mint, or WSL2)
+* **Privileges:** Root (`sudo`) access is required for binding packet capture to network interfaces.
+
+**Programming Languages & Versions:**
+
+* C++17 (Compiler: `g++` 13.3.0 or higher recommended)
+* Python 3.12+
+
+**Required Frameworks, Libraries, and Tools:**
+
+* **C++ Libraries:**
+* `libpcap-dev` (For real-time network interface sniffing)
+* `nlohmann-json3-dev` (For JSON intelligence database parsing)
+* `libssl-dev` / OpenSSL (For cryptographic Controller authentication)
 
 
-Telemetry Plane:
-All components → Collector → External security systems (SIEM or Zeek)
+* **Python Libraries:**
+* `fastapi` and `uvicorn` (For the Threat Intelligence API)
+* `requests`
 
-Logging Plane:
-All components → Logger → Secure local logs (For application only and developers)
-'''</pre>
+
+* **Build Tools:**
+* `make`
+
+
+
+---
+
+## 🚀 Installation Steps
+
+**1. Clone the repository**
+
+```bash
+git clone https://github.com/your-username/ngfw-simulator.git
+cd ngfw-simulator
+
+```
+
+**2. Install C++ Dependencies**
+
+```bash
+sudo apt-get update
+sudo apt-get install build-essential libpcap-dev nlohmann-json3-dev libssl-dev python3 python3-pip python3-venv
+
+```
+
+**3. Install Python Dependencies**
+Navigate to the Threat Intelligence module to set up the virtual environment:
+
+```bash
+# Assuming Python modules are structured under src/modules/threat-intelligence/
+cd src/modules/threat-intelligence
+python3 -m venv env
+source env/bin/activate
+pip install fastapi uvicorn requests
+deactivate
+cd ../../../
+
+```
+
+---
+
+## ⚙️ Environment Setup & Configuration
+
+The firewall relies on local JSON databases to enforce routing and security policies. These act as the system's dynamic configuration files and are located in `src/core/databases/`.
+
+* **`acl.json`:** Defines strict Layer 3/Layer 4 IP, MAC, and Port blocking/allowing rules.
+* **`ip_reputation.json`:** Contains known malicious IP addresses and their associated risk scores.
+* **`anomalies.json`:** Defines threshold scores for malformed packets (e.g., TCP Null Scans).
+* **`fingerprints.json`:** Contains deep-packet malicious payload signatures.
+
+**Authentication Setup:**
+To use the management console, ensure your `passwords.txt` file (or `login.txt`) is securely located in your working directory with the appropriate plaintext passwords required by the Controller Head.
+
+---
+
+## 🔨 Compilation Steps
+
+The project uses a `Makefile` to compile the separated C++ modules (Capture, PEP, PE, Module Head, Controller Body, Controller Head) and link the necessary cryptographic and packet-capture libraries.
+
+To build the project from source, simply run:
+
+```bash
+make clean
+make
+
+```
+
+*Note: The `Makefile` is configured to output the compiled binaries directly into the `/exe/` directory.*
+
+---
+
+## ▶️ Run Instructions
+
+Because of the modular, distributed nature of the firewall, running the project requires two separate terminal windows: one for the active firewall (Data Plane) and one for the management console (Control Plane).
+
+### Terminal 1: Launch the Firewall
+
+Make the run script executable and run it with `sudo`. This spins up the Python Threat Intel API, the C++ Policy Engine, the Module Head proxy, the PEP, and the Capture module.
+
+```bash
+chmod +x run.sh
+sudo ./run.sh
+
+```
+
+*Wait until the terminal reads: `[*] System is LIVE. Waiting for Controller Instructions.*`
+
+### Terminal 2: Launch the Management Console
+
+Make the management script executable and launch it to push the startup JSON instructions to the firewall.
+
+```bash
+chmod +x manage.sh
+sudo ./manage.sh
+
+```
+
+1. You will be prompted to enter a password (e.g., `iop2007`).
+2. Upon successful authentication, the Controller Body will push the instructions to the Module Head.
+3. The firewall in Terminal 1 will instantly begin capturing and evaluating live network traffic.
+
+### Hot-Reloading
+
+To update security rules without dropping active user connections:
+
+1. Edit any configuration file (e.g., `src/core/databases/acl.json`).
+2. Save the file.
+3. Go to **Terminal 1** and press **`ENTER`**.
+4. A `SIGUSR1` signal will safely lock memory, hot-reload the databases into the active C++ modules, and resume filtering.
+
+### Graceful Shutdown
+
+* In **Terminal 1**, type `q` or `Q` and press `ENTER` to safely unbind all sockets, kill background threads, and terminate the firewall.
+* In **Terminal 2**, press `Ctrl+C` to close the management console.

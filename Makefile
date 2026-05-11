@@ -1,34 +1,35 @@
-# Makefile
-CXX := g++
-CXXFLAGS := -std=c++17 -Wall -Wextra -Icore/shared-headers
-LDFLAGS := -lpcap -lpthread
+CXX = g++
+CXXFLAGS = -std=c++17 -Wall
+LDFLAGS_PCAP = -lpcap -pthread
+LDFLAGS_CRYPTO = -lcrypto -lssl -pthread
 
-BUILD_DIR := build
-CORE_DIR := core
+BUILD_DIR = build
 
-# Removed pe and controller from TARGETS so they are ignored
-TARGETS := $(BUILD_DIR)/capture $(BUILD_DIR)/pep $(BUILD_DIR)/pe
+all: $(BUILD_DIR)/capture $(BUILD_DIR)/pep $(BUILD_DIR)/pe $(BUILD_DIR)/pehead $(BUILD_DIR)/body $(BUILD_DIR)/head
 
-.PHONY: all clean directories
-
-all: directories $(TARGETS)
-
-directories:
+$(BUILD_DIR)/capture: core/packet/capture.cpp
 	@mkdir -p $(BUILD_DIR)
+	$(CXX) $(CXXFLAGS) $< -o $@ $(LDFLAGS_PCAP)
 
-$(BUILD_DIR)/capture: $(CORE_DIR)/packet/capture.cpp
-	$(CXX) $(CXXFLAGS) $^ -o $@ $(LDFLAGS)
+$(BUILD_DIR)/pep: core/heart/policy-enf-point/pep.cpp
+	@mkdir -p $(BUILD_DIR)
+	$(CXX) $(CXXFLAGS) $< -o $@ -pthread
 
-$(BUILD_DIR)/pep: $(CORE_DIR)/heart/policy-enf-point/pep.cpp
-	$(CXX) $(CXXFLAGS) $^ -o $@ $(LDFLAGS)
+$(BUILD_DIR)/pe: core/heart/policy-engine/pe.cpp
+	@mkdir -p $(BUILD_DIR)
+	$(CXX) $(CXXFLAGS) $< -o $@ -pthread
 
-# until we start developing other modules
+$(BUILD_DIR)/pehead: core/heart/policy-engine/pehead.cpp
+	@mkdir -p $(BUILD_DIR)
+	$(CXX) $(CXXFLAGS) $< -o $@ $(LDFLAGS_CRYPTO)
 
-$(BUILD_DIR)/pe: $(CORE_DIR)/heart/policy-engine/pe.cpp
-	$(CXX) $(CXXFLAGS) $^ -o $@ $(LDFLAGS)
+$(BUILD_DIR)/body: core/heart/controller/body.cpp
+	@mkdir -p $(BUILD_DIR)
+	$(CXX) $(CXXFLAGS) $< -o $@ $(LDFLAGS_CRYPTO)
 
-# $(BUILD_DIR)/controller: $(CORE_DIR)/heart/controller/controller.cpp
-# 	$(CXX) $(CXXFLAGS) $^ -o $@ $(LDFLAGS)
+$(BUILD_DIR)/head: core/heart/controller/head.cpp
+	@mkdir -p $(BUILD_DIR)
+	$(CXX) $(CXXFLAGS) $< -o $@ $(LDFLAGS_CRYPTO)
 
 clean:
 	rm -rf $(BUILD_DIR)/*

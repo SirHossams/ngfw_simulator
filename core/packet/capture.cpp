@@ -15,8 +15,7 @@
 
 using namespace std;
 
-//              Prototypes              //
-/*______________________________________*/
+
 
 void PacketHandler(u_char *args, const struct pcap_pkthdr *header, const u_char *packet);
 void PushToJsonDB(const NormalizedPacket& np, uint8_t protocol);
@@ -25,7 +24,6 @@ bool InitPEPSocket();
 bool SendToPEP(const NormalizedPacket& np);
 void ExtractSSLCertificate(NormalizedPacket& np);
 
-/*______________________________________*/
 
 int pep_socket = -1;
 mutex pep_mutex; 
@@ -48,7 +46,6 @@ bool SendToPEP(const NormalizedPacket& np){
     
     return true;
 }
-
 bool InitPEPSocket(){
     pep_socket = socket(AF_UNIX, SOCK_STREAM, 0);
 
@@ -369,7 +366,6 @@ int main(){
     }
     cout << "Capture module connected to PEP!\n";
 
-    // Spawn threads for each interface (if the string isn't empty)
     thread t1;
     thread t2;
 

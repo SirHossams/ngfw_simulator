@@ -1,0 +1,60 @@
+{
+	"control_settings": {
+		"module_name":"policy_engine",
+		"module_port":8080,
+		"stream_port":2145,
+		"monitoring_system_update_delay":1,
+		"Module_IP_Address":"192.168.1.7",
+		"policy_engine_ip":"127.0.0.1",
+		"policy_enforcement_point_ip":"192.168.1.9",
+		"threat_intelligence_ip":"192.168.1.10",
+		"interface_handler":"192.168.1.11",
+		"encryption_salt":[128,120,119,136],
+		"encryption_info": [192,168,1,7]
+
+	},
+	"module_settings": {
+		"head_settings": {
+			"assign_name":"Policy Engine",
+			"strict_cryptography":true,
+			"sending_port":8080
+		},
+		"PEP_IP_Address":"192.168.1.7",
+		"asset_1": {
+			"ip_address":"127.0.0.1",
+			"enterprise_asset_id":"325",
+			"mac_address":"B0:EE:34:12:A0:00",
+			"hardware_properties": {
+				"cpu_cores":3,
+				"ram":4
+			},
+			"manager_name":"Jason Ali Maher",
+			"manager_rule":"Software Engineer",
+			"privileges":5
+		},
+		"asset_2": {
+			"ip_address":"12.42.111.2",
+			"enterprise_asset_id":"215",
+			"mac_address":"B0:EE:34:11:A0:00",
+			"hardware_properties": {
+				"cpu_cores":1,
+				"ram":2
+			},
+			"manager_name":"Ahmed Girgis",
+			"manager_rule":"A'til",
+			"privileges":1
+		},
+		"asset_3": {
+			"ip_address":"127.0.0.1",
+			"enterprise_asset_id":"400",
+			"mac_address":"B0:EE:34:12:A0:00",
+			"hardware_properties": {
+				"cpu_cores":3,
+				"ram":4
+			},
+			"manager_name":"Meena Mohammed",
+			"manager_rule":"Network Engineer",
+			"privileges":10
+		}
+	}
+}
