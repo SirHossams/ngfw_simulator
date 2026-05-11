@@ -4,21 +4,6 @@ A high-performance, modular Next-Generation Firewall simulator built in C++ and 
 
 ---
 
-## 📂 Repository Structure
-
-```text
-/
-├── src/                # Full source code (C++ modules, Python Threat Intel, headers, JSON DBs)
-├── exe/                # Pre-built/compiled executable binaries
-├── run.sh              # Main execution script for the Data Plane & Control Plane
-├── manage.sh           # Management console script for Controller instructions
-├── Makefile            # Build configuration
-└── README.md           # Project documentation
-
-```
-
----
-
 ## 🛠️ Prerequisites and Dependencies
 
 To successfully compile and run the simulator, your environment must meet the following requirements:
@@ -58,7 +43,7 @@ To successfully compile and run the simulator, your environment must meet the fo
 **1. Clone the repository**
 
 ```bash
-git clone https://github.com/your-username/ngfw-simulator.git
+git clone https://github.com/SirHossams/ngfw-simulator.git
 cd ngfw-simulator
 
 ```
@@ -75,13 +60,12 @@ sudo apt-get install build-essential libpcap-dev nlohmann-json3-dev libssl-dev p
 Navigate to the Threat Intelligence module to set up the virtual environment:
 
 ```bash
-# Assuming Python modules are structured under src/modules/threat-intelligence/
-cd src/modules/threat-intelligence
+cd ./modules/threat-intelligence
 python3 -m venv env
 source env/bin/activate
 pip install fastapi uvicorn requests
 deactivate
-cd ../../../
+cd ../..
 
 ```
 
@@ -98,22 +82,6 @@ The firewall relies on local JSON databases to enforce routing and security poli
 
 **Authentication Setup:**
 To use the management console, ensure your `passwords.txt` file (or `login.txt`) is securely located in your working directory with the appropriate plaintext passwords required by the Controller Head.
-
----
-
-## 🔨 Compilation Steps
-
-The project uses a `Makefile` to compile the separated C++ modules (Capture, PEP, PE, Module Head, Controller Body, Controller Head) and link the necessary cryptographic and packet-capture libraries.
-
-To build the project from source, simply run:
-
-```bash
-make clean
-make
-
-```
-
-*Note: The `Makefile` is configured to output the compiled binaries directly into the `/exe/` directory.*
 
 ---
 
