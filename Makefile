@@ -1,7 +1,21 @@
 CXX = g++
-CXXFLAGS = -std=c++17 -Wall
-LDFLAGS_PCAP = -lpcap -pthread
-LDFLAGS_CRYPTO = -lcrypto -lssl -pthread
+
+CXXFLAGS = -std=c++17 -Wall -Wextra \
+           -O2 -D_FORTIFY_SOURCE=3 \
+           -fstack-protector-strong \
+           -fPIE \
+           -Wformat -Werror=format-security \
+           -fcf-protection=full \
+           -fno-strict-aliasing
+
+SEC_LDFLAGS = -pie \
+              -Wl,-z,relro \
+              -Wl,-z,now \
+              -Wl,-z,noexecstack
+
+LDFLAGS_PCAP = $(SEC_LDFLAGS) -lpcap -pthread
+LDFLAGS_CRYPTO = $(SEC_LDFLAGS) -lcrypto -lssl -pthread
+LDFLAGS_BASE = $(SEC_LDFLAGS) -pthread
 
 BUILD_DIR = build
 
@@ -13,11 +27,11 @@ $(BUILD_DIR)/capture: core/packet/capture.cpp
 
 $(BUILD_DIR)/pep: core/heart/policy-enf-point/pep.cpp
 	@mkdir -p $(BUILD_DIR)
-	$(CXX) $(CXXFLAGS) $< -o $@ -pthread
+	$(CXX) $(CXXFLAGS) $< -o $@ $(LDFLAGS_BASE)
 
 $(BUILD_DIR)/pe: core/heart/policy-engine/pe.cpp
 	@mkdir -p $(BUILD_DIR)
-	$(CXX) $(CXXFLAGS) $< -o $@ -pthread
+	$(CXX) $(CXXFLAGS) $< -o $@ $(LDFLAGS_BASE)
 
 $(BUILD_DIR)/pehead: core/heart/policy-engine/pehead.cpp
 	@mkdir -p $(BUILD_DIR)
