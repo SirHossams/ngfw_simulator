@@ -48,11 +48,11 @@ PID_PE=$!
 sleep 1
 
 echo "[*] Listening to the controller body on port 8080...";
-ncat -lv 8080;
+ncat -l 8080;
 sleep 1;
 
 echo "[*] Receiving the file...";
-ncat -lv 8080 > arguments_list.txt;
+ncat -l 8080 > arguments_list.txt;
 echo "[*] Files Received!"
 sleep 1;
 
@@ -66,6 +66,9 @@ sleep 1
 
 sudo ./build/capture > /dev/null 2>&1 &
 PID_CAP=$!
+
+cat logo.txt
+cat text.txt
 
 echo "--------------------------------------------------------"
 echo "[*] System is LIVE. Waiting for Controller Instructions."
