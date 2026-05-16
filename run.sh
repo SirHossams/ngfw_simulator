@@ -47,8 +47,16 @@ sleep 1
 PID_PE=$!
 sleep 1
 
+echo "[*] Listening to the controller body on port 8080...";
+ncat -lv 8080;
+sleep 1;
 
-./build/pehead 8080 2145 initial_settings_file.conf &
+echo "[*] Receiving the file...";
+ncat -lv 8080 > arguments_list.txt;
+echo "[*] Files Received!"
+sleep 1;
+
+./build/pehead 8080 2145 initial_settings_file.conf arguments_list.txt &
 PID_PEHEAD=$!
 sleep 1
 

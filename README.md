@@ -52,7 +52,7 @@ cd ngfw-simulator
 
 ```bash
 sudo apt-get update
-sudo apt-get install build-essential libpcap-dev nlohmann-json3-dev libssl-dev python3 python3-pip python3-venv
+sudo apt-get install build-essential libpcap-dev nlohmann-json3-dev libssl-dev python3 python3-pip python3-venv ncat
 
 ```
 

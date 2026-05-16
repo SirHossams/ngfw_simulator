@@ -111,6 +111,7 @@ int initialise_body(json& whole_json_file)
 		cerr << "Controller: InitialisingBody: Error in opening the socket.\n";
 		return -1;
 	}
+	json module_settings=json::object();
 	try {
 		whole_json_file=receive_from_head();
 		if (whole_json_file.is_null()) {
@@ -123,7 +124,7 @@ int initialise_body(json& whole_json_file)
 		else {
 			cout << "Controller: InitialiseBody: The JSON file is valid.\n";
 		}
-		json module_settings=remove_control_settings(whole_json_file);
+		module_settings=remove_control_settings(whole_json_file);
 		module_name=controller_settings["module_name"];
 		module_port=controller_settings["module_port"];
 		stream_port=controller_settings["stream_port"];
@@ -144,6 +145,14 @@ int initialise_body(json& whole_json_file)
 		cerr << "Controller: InitialiseBody: Unknown error.\n";
 		return -4;
 	}
+	fstream export_file("instructions.json",ios::out | ios::in);
+	if (!export_file.is_open()) {
+		cerr << "Controller: InitialiseBody: The file is not open.\n";
+		return -5;
+	}	
+	export_file << module_settings;
+	cout << "Controller: InitialiseBody: Instructions has been exported.\n";
+	export_file.close();
 	return 0;
 }
 
@@ -391,16 +400,16 @@ int main(int argc,char* argv[])
 		return -2;
 	}
 	int function_status;
-	thread t1(thread1_work,std::ref(function_status));
+	/*thread t1(thread1_work,std::ref(function_status));
 	if (function_status==-3) return -3;
 	thread t2(thread2_work,std::ref(function_status));
-	if (function_status==-4) return -4;
+	if (function_status==-4) return -4; */
 	if (save_loggings()<0) {
 		cerr << "Controller: Error during saving the loggings.\n";
 		return -5;
 	}
-	t1.join();
-	t2.join();
+	/* t1.join();
+	t2.join(); */
 	end_body();
 	return 0;
 }

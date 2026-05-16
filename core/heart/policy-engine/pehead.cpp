@@ -13,11 +13,13 @@
 #include <mutex>
 #include <condition_variable>
 #include <atomic>
+#include <chrono>
 #include <fstream>
 #include <csignal>
 #include "../../shared-headers/networking_aux.h"
 #include "../../shared-headers/networking_aux.cpp"
 #include "current_date_time.h"
+#include "get_arguments.cpp"
 
 #define MODULE_SOCKET_PATH "/tmp/module-body.sock"
 
@@ -67,8 +69,8 @@ condition_variable cv_event;
 condition_variable cv_signal;
 atomic<bool> stop_loop{false};
 
-void send_log(string message,int message_type=1) {
-	message=module_info["Name"]+" Module: "+message;
+void send_log(string message,string module_name="Name",int message_type=1) {
+	message=module_name+" Module: "+message;
 	if (message_type==1) {
 		message="[" +get_current_date_time()+ "] "+message;
 		cout << error_color << "[ERROR] " << message << normal_color << "\n";
@@ -78,6 +80,11 @@ void send_log(string message,int message_type=1) {
 		message="[" +get_current_date_time()+ "] "+message;
 		cout << warning_color << "[WARNING] " << message << normal_color << "\n";
 		message=string(warning_color)+message+string(normal_color);
+	}
+	else if (message_type==3) {
+		message="["+get_current_date_time()+"] "+message;
+		cout << success_color << "[COMPLETE] " << message << normal_color << "\n";
+		message=string(success_color)+message+string(normal_color);
 	}
 	else if (message_type==0) cout << message << "\n";
 	
@@ -90,46 +97,46 @@ int load_operating_settings(const char* initial_settings_file) {
 	cout << "Module Initialise: Loading operating settings...\n";
 	fstream settings_file(initial_settings_file, ios::in); 
 	if (!settings_file.is_open()) {
-		send_log("Cannot load the fundamental configurations and settings.");
+		send_log("Cannot load the fundamental configurations and settings.",module_info["Name"],1);
 		return -1;
 	}
 	getline(settings_file,module_info["Name"]);
 	getline(settings_file,module_info["IP Address"]);
 	getline(settings_file,module_info["Threads"]);
 	settings_file.close();
-	cout << success_color << "[SUCCESS]: Module: Loading initial operating settings success." << normal_color << "\n";
+	cout << success_color << "[COMPLETE]: Module: Loading initial operating settings success." << normal_color << "\n";
 	return 0;
 }
 
 int initialise(int tcp_port,int streaming_port,const char* initial_configuration_file) {
 	cout << "Module: Initialising the module...\n";
 	if (load_operating_settings(initial_configuration_file)<0) {
-		send_log("Initialise: loading operating settings failure.");
+		send_log("Initialise: loading operating settings failure.",module_info["Name"],1);
 		return -1;
 	}
 	TCP_Open(fund_modules_sockets_map["controller"],modules_ip_map["controller"].c_str(),tcp_port,SERVER);
 	if (fund_modules_sockets_map["controller"]<0) {
-		send_log("Initialise: Error in the connection with the controller.");
-		return -2;
+		send_log("Initialise: Failed to connect with the controller for receiving the update.",module_info["Name"],2);
 	}
-	
+	else
+	send_log("Initialise: TCP Connection with the controller has been established.",module_info["Name"],3);
 	std::this_thread::sleep_for(std::chrono::seconds(1));
-	UNIX_Open(fund_modules_sockets_map["body"],MODULE_SOCKET_PATH,CLIENT);
+	/*UNIX_Open(fund_modules_sockets_map["body"],MODULE_SOCKET_PATH,CLIENT);
 	if (fund_modules_sockets_map["body"]<0) {
 		send_log("Initialise: Error in the Connection with the body.");
 		return -3;
-	}
+	}*/
 	UDP_Open(fund_modules_sockets_map["controller_news"],modules_ip_map["controller"].c_str(),streaming_port);
 	
-	int sending_status=0;
+	/*int sending_status=0;
 	TCP_Send(fund_modules_sockets_map["controller"],"READY",sending_status);
 	if (sending_status==1) return -4;
-	else if (sending_status==-1) return -5;
+	else if (sending_status==-1) return -5; */
 	return 0;
 }
 
 int get_auth_credentials(string recvd_message) {
-	send_log("Getting authentication credentials...",0);
+	send_log("Getting authentication credentials...",module_info["Name"],0);
 	stringstream ss(recvd_message);
 	string str_controller_iv,str_controller_ciphertext,str_controller_tag;
 	getline(ss,str_controller_iv,'|');
@@ -142,7 +149,7 @@ int get_auth_credentials(string recvd_message) {
 }
 
 int controller_receive_updates(bool strict_cryptography,json& module_settings) {
-    send_log("Waiting for Updates from the controller...",0);
+    send_log("Waiting for Updates from the controller...",module_info["Name"],0);
     
     string received_instructions; 
     
@@ -151,14 +158,14 @@ int controller_receive_updates(bool strict_cryptography,json& module_settings) {
             TCP_Receive(fund_modules_sockets_map["controller"], received_instructions, 8192);
             
             if (!received_instructions.empty()) {
-                send_log("Controller instructions received! Parsing...", 0);
+                send_log("Controller instructions received! Parsing...",module_info["Name"],3);
                 module_settings = json::parse(received_instructions);
                 return 0;
             }
             
             
         } catch (const std::exception& e) {
-            send_log("Unexpected Behaviour during parse: " + string(e.what()));
+            send_log("Unexpected Behaviour during parse: " + string(e.what()),module_info["Name"],1);
             return -2;
         }
     }
@@ -167,36 +174,36 @@ int controller_receive_updates(bool strict_cryptography,json& module_settings) {
 }
 
 int extract_details(json instructions_json,json& general_settings,json& module_settings) {
-	send_log("Extracting the details..",0);
+	send_log("Extracting the details..",module_info["Name"],0);
 	try {
 		general_settings=instructions_json["general_settings"];
 		module_settings=instructions_json["module_settings"];
 	} catch (const std::exception& e) {
-		send_log("Unexpected Behaviour: " + string(e.what()));
+		send_log("Unexpected Behaviour: " + string(e.what()),module_info["Name"],1);
 		return -1;
 	}
 	return 0;
 }
 
 inline int set_general_settings(json general_settings) {
-	send_log("Setting general settings...",0);
+	send_log("Setting general settings...",module_info["Name"],0);
 	try {
 		module_info["Name"]=general_settings["assign_name"]; 
 		strict_cryptography=general_settings["general_cryptography"];
 	} catch (const std::exception& e) {
-		send_log("SetGeneralSettings: Unexpected Behavior: " + string(e.what()));
+		send_log("SetGeneralSettings: Unexpected Behavior: " + string(e.what()),module_info["Name"],1);
 		return -1;
 	}
 	return 0;
 }
 
 int send_instructions(json module_ins) {
-	send_log("Sending the instructions to the body..",0);
+	send_log("Sending the instructions to the body..",module_info["Name"],0);
 	string str_received_ins=module_ins.dump();
 	int sending_status=0;
 	UNIX_Send(fund_modules_sockets_map["body"],str_received_ins,sending_status);
 	if (sending_status<0) {
-		send_log("Sending instructions has failed");
+		send_log("Sending instructions has failed",module_info["Name"],1);
 		return -1;
 	}
 	return 0;
@@ -237,10 +244,10 @@ void data_plane_proxy() {
     bind(tcp_server, (struct sockaddr*)&tcp_addr, sizeof(tcp_addr));
     listen(tcp_server, 5);
 
-    send_log("ModuleHead listening on TCP 9000 for PEP Data Plane...", 0);
+    send_log("ModuleHead listening on TCP 9000 for PEP Data Plane...",module_info["Name"], 0);
     int pep_client = accept(tcp_server, nullptr, nullptr);
     if (pep_client < 0) return;
-    send_log("PEP Connected to ModuleHead. Bridging to PE UNIX Data Socket...", 0);
+    send_log("PEP Connected to ModuleHead. Bridging to PE UNIX Data Socket...",module_info["Name"] ,3);
 
     int unix_client = socket(AF_UNIX, SOCK_STREAM, 0);
     sockaddr_un unix_addr{};
@@ -251,7 +258,7 @@ void data_plane_proxy() {
         std::this_thread::sleep_for(std::chrono::milliseconds(500));
     }
 
-    send_log("ModuleHead Data Plane connected to PE. Proxying active.", 0);
+    send_log("ModuleHead Data Plane connected to PE. Proxying active.",module_info["Name"],3);
 
     auto proxy_func = [](int src_fd, int dst_fd) {
         char buffer[8192];
@@ -279,7 +286,7 @@ void data_plane_proxy() {
 }
 
 void module_end() {
-	send_log("Closing the module...",0);
+	send_log("Closing the module...",module_info["Name"],0);
 	TCP_Close(fund_modules_sockets_map["controller"]);
 	UDP_Close(fund_modules_sockets_map["controller_udp"]);
 	UDP_Close(fund_modules_sockets_map["controller_news"]);
@@ -316,23 +323,39 @@ void print_available_commands() {
 
 int main(int argc,char* argv[]) {
 	signal(SIGINT,signal_handler);
-	if (argc<4) {
+	if (argc<5) {
 		print_available_commands();
 		return -1;
 	}
-
+	//cout << "Operating a function..\n";
+	//cout << "Detecting the arguments list file on path: " << argv[4] << "\n";
+	string arguments_path=string(argv[4]);
 	thread t_data(data_plane_proxy);
-    t_data.detach(); 
+    	t_data.detach();
 
 	if (initialise(stoi(string(argv[1])),stoi(string(argv[2])),argv[3])<0) return -2;
-	
+
+	send_log("Starting the arguments initialisation",module_info["Name"],0);
+	cout << "Waiting for 3 seconds for starting arguments initialisation..\n";
+	this_thread::sleep_for(chrono::seconds(3));
+	vector<string> our_arguments=get_arguments(arguments_path,2);
+	if (our_arguments.empty()) {
+		send_log("Error occured during initialising the arguments.",module_info["Name"],1);
+		return -2;
+	}
+	send_log("Arguments Loaded",module_info["Name"],3);
+	for (int i=0;i<our_arguments.size();i++) {
+		cout << our_arguments[i] << "\n";
+	}
+	cout << "PEP IP address: " << our_arguments[0] << "\n";
+	cout << "PE IP address: " << our_arguments[0] << "\n";
 	json recvd_cont_template; 
 	if (controller_receive_updates(true,recvd_cont_template)<0) return -3;
 	
 	json module_settings, general_settings;
 	if (extract_details(recvd_cont_template,general_settings,module_settings)<0) return -4;
 	
-	if (initialise_UDP_socket(module_info["Name"],module_status_port)<0) return -5;
+	//if (initialise_UDP_socket(module_info["Name"],module_status_port)<0) return -5;
 	
 	thread t1(thread1_func,std::ref(general_settings));
 	thread t2(thread2_func,std::ref(module_settings));
@@ -350,6 +373,6 @@ int main(int argc,char* argv[]) {
 	t1.join();
 	t2.join();
     if (t_data.joinable()) t_data.join();
-	module_end();
+	//module_end();
 	return 0;
 }

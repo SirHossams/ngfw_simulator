@@ -1,19 +1,4 @@
 {
-	"control_settings": {
-		"module_name":"policy_engine",
-		"module_port":8080,
-		"stream_port":2145,
-		"monitoring_system_update_delay":1,
-		"Module_IP_Address":"192.168.1.7",
-		"policy_engine_ip":"127.0.0.1",
-		"policy_enforcement_point_ip":"192.168.1.9",
-		"threat_intelligence_ip":"192.168.1.10",
-		"interface_handler":"192.168.1.11",
-		"encryption_salt":[128,120,119,136],
-		"encryption_info": [192,168,1,7]
-
-	},
-	"module_settings": {
 		"head_settings": {
 			"assign_name":"Policy Engine",
 			"strict_cryptography":true,
@@ -59,5 +44,4 @@
 			"manager_rule":"Network Engineer",
 			"privileges":10
 		}
-	}
 }

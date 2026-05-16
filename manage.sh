@@ -11,7 +11,7 @@ cleanup() {
 
 trap cleanup SIGINT SIGTERM
 
-echo "[*] Starting the Controller Body..."
+echo "[*] Starting the Controller Body...";
 ./build/body &
 PID_BODY=$!
 
@@ -21,7 +21,14 @@ echo "--------------------------------------------------------"
 echo "[*] Executing Controller Head Instructions"
 echo "--------------------------------------------------------"
 
-./build/head policy_engine.json database_of_modules.txt manager_database.json
+./build/head policy_engine.json database_of_modules.txt manager_database.json;
+
+./build/jsonexpvalues instructions.json keyvalues.txt;
+echo "[*] Sending the file to the other devices...";
+
+sleep 3
+ncat -v 127.0.0.1 8080 < keyvalues.txt;
+echo "[*] Keyvalues sent!"
 
 echo
 echo "[*] Instructions sent. Press Ctrl+C to terminate the Controller Body."
