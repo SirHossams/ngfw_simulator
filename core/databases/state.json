@@ -1,0 +1,9 @@
+[
+    {
+        "src_ip": "127.0.0.1",
+        "dst_ip": "127.0.0.1",
+        "src_port": 60922,
+        "dst_port": 5000,
+        "app_protocol": "TCP-UNKNOWN"
+    }
+]

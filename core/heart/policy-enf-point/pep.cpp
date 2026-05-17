@@ -32,7 +32,6 @@ struct VerdictReply {
     uint8_t verdict; 
 };
 
-// Signal Handler for Hot Reload
 void signal_handler_pep(int signum) {
     if (signum == SIGUSR1) reload_requested = true;
 }
@@ -163,6 +162,15 @@ void CreateSession(const NormalizedPacket& pkt) {
     }
     in.close();
 
+    for (const auto& session : state_db) {
+        if (session.value("src_ip", "") == string(pkt.src_ip) &&
+            session.value("dst_ip", "") == string(pkt.dst_ip) &&
+            session.value("src_port", 0) == pkt.src_port &&
+            session.value("dst_port", 0) == pkt.dst_port) {
+            return; 
+        }
+    }
+
     ordered_json new_session;
     new_session["src_ip"] = string(pkt.src_ip);
     new_session["dst_ip"] = string(pkt.dst_ip);
@@ -270,7 +278,7 @@ void VerdictReceiverLoop() {
         }
 
         if (reply.verdict == 1) {
-            cout << "[VERDICT] Frame #" << reply.seq_num << " -> ALLOW. Packet forwarded.\n";
+            // cout << "[VERDICT] Frame #" << reply.seq_num << " -> ALLOW. Packet forwarded.\n";
             if (found) CreateSession(pkt); 
         } else {
             cout << "[VERDICT] Frame #" << reply.seq_num << " -> DROP. Packet destroyed.\n";
@@ -278,7 +286,6 @@ void VerdictReceiverLoop() {
     }
 }
 
-// ================= Main =================
 int main() {
     signal(SIGUSR1, signal_handler_pep);
 
@@ -311,12 +318,14 @@ int main() {
         }
         if (status == 0) continue; 
 
-        if (checker.CheckStateTable(pkt)) {
-            cout << "[PEP] Frame #" << pkt.capture_sequence_number << " -> Passed (Existing Session in State Table)\n";
+        bool is_established = checker.CheckStateTable(pkt);
+
+        if (is_established && pkt.payload_size == 0) {
+            // cout << "[PEP] Frame #" << pkt.capture_sequence_number << " -> Passed (Existing Session, No Payload)\n";
             continue;
         } 
 
-        if (!checker.CheckACL(pkt)) {
+        if (!is_established && !checker.CheckACL(pkt)) {
             string proto = strlen(pkt.app_protocol) > 0 ? pkt.app_protocol : "UNKNOWN/L2";
             cout << "[PEP] Frame #" << pkt.capture_sequence_number 
                  << " -> Dropped by ACL | Proto: " << proto 

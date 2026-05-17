@@ -4,7 +4,7 @@
         "protocol": 6,
         "tcp_flags": 0,
         "description": "No TCP flags set",
-        "score": 70
+        "score": 85
     },
     {
         "name": "TCP_SYN_FIN",

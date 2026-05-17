@@ -1,7 +1,22 @@
 [
     {
-        "name": "test.com",
-        "ip_address": "1",
+        "name": "iomart.com",
+        "ip_address": "185.91.78.42",
+        "score": 0
+    },
+    {
+        "name": "google.com",
+        "ip_address": "142.250.183.14",
+        "score": 0
+    },
+    {
+        "name": "racknerd.com",
+        "ip_address": "23.94.61.120",
+        "score": 0
+    },
+    {
+        "name": "ovhcloud.com",
+        "ip_address": "51.81.203.77",
         "score": 0
     }
 ]

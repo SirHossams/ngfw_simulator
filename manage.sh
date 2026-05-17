@@ -27,7 +27,7 @@ echo "--------------------------------------------------------"
 echo "[*] Sending the file to the other devices...";
 
 sleep 3
-ncat -v 127.0.0.1 8080 < keyvalues.txt;
+ncat 127.0.0.1 8080 < keyvalues.txt;
 echo "[*] Keyvalues sent!"
 
 echo

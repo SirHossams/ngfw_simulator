@@ -143,8 +143,8 @@ public:
             string pkt_app_proto(pkt.app_protocol);
             
             for (const auto& fp : fp_db) {
-                string app_proto = fp.value("app_protocol", "");
-                if (app_proto == pkt_app_proto || app_proto == "ANY") {
+                // string app_proto = fp.value("app_protocol", "");
+                // if (app_proto == pkt_app_proto || app_proto == "ANY") {
                     if (fp.contains("payload") && fp["payload"].is_array()) {
                         for (const auto& pattern_val : fp["payload"]) {
                             string pattern = pattern_val.get<string>();
@@ -155,7 +155,7 @@ public:
                             }
                         }
                     }
-                }
+                // }
             }
         }
         return risk_score;

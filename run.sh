@@ -43,7 +43,7 @@ sleep 1
 PID_REP=$!
 sleep 1
 
-./build/pe &
+./build/pe > /dev/null 2>&1 &
 PID_PE=$!
 sleep 1
 

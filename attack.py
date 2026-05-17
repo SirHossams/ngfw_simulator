@@ -22,8 +22,7 @@ Pick your attack scenario:
 
 1. XSS
 2. SQL Injection
-3. TCP NULL Scan (Active Recon.)
-4. Unsecure Authentication
+3. Unsecure Authentication
 
 """
 
@@ -34,10 +33,12 @@ server = socket.socket(socket.AF_INET,socket.SOCK_STREAM)
 # ---- Attack Scenarios ----
 
 def UnsecureAuth():
-    pass
+    print("(Hacker) Sending SQLi payload...\n")
+    client.send("password=".encode())
 
 def SQLi():
-    pass
+    print("(Hacker) Sending SQLi payload...\n")
+    client.send("' OR 1=1".encode())
 
 def XSS():
     print("(Hacker) Sending XSS payload...\n")
@@ -64,7 +65,7 @@ def Server():
     while True:
         payload = client.recv(1024)
         if payload:
-            print(f"[x] Recieved Payload: {payload.decode()}\n")
+            print(f"(Server) Recieved Payload: {payload.decode()}\n")
     
 # ---- Client ----
 
@@ -118,9 +119,9 @@ def Start():
             XSS()
         elif option == 2:
             SQLi()
+        # elif option == 3:
+        #     TCPNUllScan()
         elif option == 3:
-            TCPNUllScan()
-        elif option == 4:
             UnsecureAuth()
         sleep(0.2)
 

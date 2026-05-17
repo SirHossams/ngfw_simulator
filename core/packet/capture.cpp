@@ -29,8 +29,8 @@ int pep_socket = -1;
 mutex pep_mutex; 
 mutex db_mutex;  
 
-string global_interface_1 = "";
-string global_interface_2 = "";
+string global_interface_1 = "lo";
+string global_interface_2 = "enp3s0";
 
 atomic<uint64_t> global_packet_counter{1}; 
 
@@ -317,7 +317,7 @@ void FindInterfaces(){
     }
 
     for(pcap_if_t *d = alldevices; d != NULL; d = d->next) {
-        if (string(d->name) == "lo" || string(d->name) == "any") continue; 
+        // if (string(d->name) == "lo" || string(d->name) == "any") continue; 
 
         if (global_interface_1.empty()) {
             global_interface_1 = d->name;
@@ -342,6 +342,17 @@ void Sniff(string name){
 
     if(handle == NULL){
         cerr << "Couldn't open device " << name << ": " << errbuf << endl;
+        return;
+    }
+
+    struct bpf_program fp;
+    char filter_exp[] = "not port 9000 and not port 8080 and not port 8081";
+    if (pcap_compile(handle, &fp, filter_exp, 0, PCAP_NETMASK_UNKNOWN) == -1) {
+        cerr << "Could not parse filter: " << pcap_geterr(handle) << endl;
+        return;
+    }
+    if (pcap_setfilter(handle, &fp) == -1) {
+        cerr << "Could not install filter: " << pcap_geterr(handle) << endl;
         return;
     }
 

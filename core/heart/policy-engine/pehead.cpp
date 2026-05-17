@@ -344,9 +344,9 @@ int main(int argc,char* argv[]) {
 		return -2;
 	}
 	send_log("Arguments Loaded",module_info["Name"],3);
-	for (int i=0;i<our_arguments.size();i++) {
-		cout << our_arguments[i] << "\n";
-	}
+	// for (int i=0;i<our_arguments.size();i++) {
+	// 	cout << our_arguments[i] << "\n";
+	// }
 	cout << "PEP IP address: " << our_arguments[0] << "\n";
 	cout << "PE IP address: " << our_arguments[0] << "\n";
 	json recvd_cont_template; 
