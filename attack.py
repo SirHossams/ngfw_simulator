@@ -1,6 +1,6 @@
 import socket, threading
 from time import sleep
-from scapy.all import IP, TCP, sr1
+# from scapy.all import IP, TCP, sr1
 
 IP_ADDRESS = "127.0.0.1"
 PORT = 5000
@@ -44,11 +44,11 @@ def XSS():
     print("(Hacker) Sending XSS payload...\n")
     client.send("<script>".encode())
 
-def TCPNUllScan():
-    null_packet = IP(dst=IP_ADDRESS) / TCP(dport=PORT, flags="")
+# def TCPNUllScan():
+#     null_packet = IP(dst=IP_ADDRESS) / TCP(dport=PORT, flags="")
     
-    print("(Hacker) Sending TCP Null Packets...\n")
-    response = sr1(null_packet, timeout=2, verbose=0)
+#     print("(Hacker) Sending TCP Null Packets...\n")
+#     response = sr1(null_packet, timeout=2, verbose=0)
 
 
 # ---- Server ----
